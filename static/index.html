@@ -539,10 +539,19 @@ let unblockShown=false;
 function enq(fn){sigQ=sigQ.then(fn).catch(console.warn);}
 
 const ICE={iceTransportPolicy:'all',iceServers:[
+  // STUN servers
   {urls:'stun:stun.l.google.com:19302'},
-  {urls:'stun:stun1.l.google.com:19302'},
-  {urls:'stun:stun2.l.google.com:19302'},
   {urls:'stun:stun.cloudflare.com:3478'},
+  // TURN relay — ensures voice works even through strict NAT/firewalls
+  {
+    urls:[
+      'turn:138.124.115.113:3478',          // UDP + TCP
+      'turn:138.124.115.113:3478?transport=tcp', // force TCP (bypass UDP blocks)
+      'turns:138.124.115.113:5349',         // TLS (most firewall-friendly)
+    ],
+    username:'p2pchat',
+    credential:'TurnPass2026!'
+  }
 ]};
 
 /* ── Room warning ── */
