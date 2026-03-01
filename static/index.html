@@ -409,6 +409,9 @@ html,body{height:100%;background:var(--bg);color:var(--fg);
     <button class="tool-btn voice-rec-btn" id="voice-rec-btn" title="Record voice">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
     </button>
+    <button class="tool-btn cancel-rec-btn" id="cancel-rec-btn" title="Cancel recording" style="display:none;color:var(--red)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
     <div class="input-wrap">
       <textarea id="msg-input" placeholder="Message…" rows="1"></textarea>
     </div>
@@ -532,7 +535,7 @@ let myTypTimer=null,lastSndr=null;
 let myMsgs={};    // msgId → {tickEl, seenBy}
 let msgCache={};  // msgId → {sender,text,type} for replies
 let replyTo=null; // current reply target {msgId,sender,text}
-let mediaRecorder=null,recChunks=[],recording=false;
+let mediaRecorder=null,recChunks=[],recording=false,recCancelled=false;
 let pendingFile=null; // file waiting for confirm
 let unblockShown=false;
 
@@ -769,7 +772,10 @@ function showConfirm(file){
 async function uploadFile(blob,filename){
   const fd=new FormData();fd.append('file',blob,filename);
   const res=await fetch(BASE+'/upload',{method:'POST',body:fd});
-  if(!res.ok)throw new Error('HTTP '+res.status);
+  if(!res.ok){
+    if(res.status===413)throw new Error('File too large — add client_max_body_size 100m; to your Nginx config');
+    throw new Error('Upload failed (HTTP '+res.status+')');
+  }
   const d=await res.json();d.url=absUrl(d.url);return d;
 }
 async function sendFile(fileOrBlob,filename,mime){
@@ -787,31 +793,47 @@ async function sendFile(fileOrBlob,filename,mime){
 
 /* ── Voice recording ── */
 $('voice-rec-btn').onclick=toggleRec;
+$('cancel-rec-btn').onclick=cancelRec;
+
+function setRecUI(active){
+  $('voice-rec-btn').classList.toggle('recording',active);
+  $('voice-rec-btn').title=active?'Stop & send':'Record voice';
+  $('cancel-rec-btn').style.display=active?'':'none';
+}
+
 async function toggleRec(){
   if(!recording){
     try{
       const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-      recChunks=[];
+      recChunks=[];recCancelled=false;
       const opts=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ?{mimeType:'audio/webm;codecs=opus'}:{};
       mediaRecorder=new MediaRecorder(stream,opts);
-      mediaRecorder.ondataavailable=e=>recChunks.push(e.data);
+      mediaRecorder.ondataavailable=e=>{if(e.data.size>0)recChunks.push(e.data);};
       mediaRecorder.onstop=async()=>{
         stream.getTracks().forEach(t=>t.stop());
+        if(recCancelled){recCancelled=false;toast('Recording cancelled','warn','🎙',2000);return;}
         const mime=mediaRecorder.mimeType||'audio/webm';
         const blob=new Blob(recChunks,{type:mime});
+        if(blob.size<500){toast('Recording too short','warn','🎙',2000);return;}
         await sendFile(blob,'voice-message'+(mime.includes('ogg')?'.ogg':'.webm'),mime);
       };
-      mediaRecorder.start();recording=true;
-      $('voice-rec-btn').classList.add('recording');
-      $('voice-rec-btn').title='Stop recording';
+      mediaRecorder.start(250); // collect in 250ms chunks
+      recording=true;
+      setRecUI(true);
     }catch(err){toast('Mic error: '+err.message,'err','🎙');}
   }else{
+    // Stop and send
     if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
-    recording=false;
-    $('voice-rec-btn').classList.remove('recording');
-    $('voice-rec-btn').title='Record voice';
+    recording=false;setRecUI(false);
   }
+}
+
+function cancelRec(){
+  if(!recording)return;
+  recCancelled=true;
+  if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
+  recording=false;setRecUI(false);
 }
 
 /* ── Drawer ── */
