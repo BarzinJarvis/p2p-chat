@@ -4002,18 +4002,17 @@ window.onload=()=>{
     document.head.appendChild(s);
   })();
 
-  // Register Service Worker for PWA
+  // Register Service Worker for PWA — auto-reload on new version
   if('serviceWorker' in navigator){
+    // Auto-reload when a new SW takes control (skipWaiting already called in SW)
+    let _swRefreshing=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(!_swRefreshing){_swRefreshing=true;window.location.reload();}
+    });
     navigator.serviceWorker.register('/sw.js').then(reg=>{
       console.log('[PWA] SW registered, scope:',reg.scope);
-      reg.addEventListener('updatefound',()=>{
-        const w=reg.installing;
-        w.addEventListener('statechange',()=>{
-          if(w.state==='installed'&&navigator.serviceWorker.controller){
-            toast('Update available — refresh to apply','ok',null,6000);
-          }
-        });
-      });
+      // Force update check on every page load (detects new binary deployment)
+      reg.update().catch(()=>{});
     }).catch(err=>console.warn('[PWA] SW error:',err));
   }
 };
