@@ -63,7 +63,28 @@ func main() {
 		defer file.Close()
 
 		ext := filepath.Ext(header.Filename)
-		filename := uuid.New().String() + ext
+		// Sanitize original filename: keep alphanumeric, dots, hyphens, underscores; max 80 chars
+		origName := header.Filename
+		if origName == "" {
+			origName = "file" + ext
+		}
+		// Remove path separators and sanitize
+		origName = filepath.Base(origName)
+		var sanitized []rune
+		for _, r := range []rune(origName) {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+				r == '.' || r == '-' || r == '_' || r == ' ' {
+				sanitized = append(sanitized, r)
+			}
+		}
+		sanitizedName := strings.TrimSpace(string(sanitized))
+		if len(sanitizedName) == 0 {
+			sanitizedName = "file" + ext
+		}
+		if len(sanitizedName) > 80 {
+			sanitizedName = sanitizedName[:80]
+		}
+		filename := uuid.New().String() + "__" + sanitizedName
 		dst, err := os.Create("uploads/" + filename)
 		if err != nil {
 			http.Error(w, "Server error", 500)
@@ -99,9 +120,14 @@ func main() {
 			log.Printf("[delete] uploads/%s", filename)
 			return
 		}
-		// Force download with original filename so browser doesn't try to preview
-		filename := filepath.Base(r.URL.Path)
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		// Serve with original filename in Content-Disposition
+		storedName := filepath.Base(r.URL.Path)
+		// Extract original name: format is "<uuid>__<original_name>" or legacy "<uuid><ext>"
+		displayName := storedName
+		if idx := strings.Index(storedName, "__"); idx != -1 {
+			displayName = storedName[idx+2:]
+		}
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, displayName))
 		http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))).ServeHTTP(w, r)
 	})
 

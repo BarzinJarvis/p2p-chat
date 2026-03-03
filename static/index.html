@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="P2P Chat"/>
 <meta name="application-name" content="P2P Chat"/>
 <meta name="msapplication-TileColor" content="#6366f1"/>
+<meta name="color-scheme" content="light dark">
 <link rel="manifest" href="/manifest.json"/>
 <link rel="apple-touch-icon" href="/icons/icon-192.png"/>
 <title>P2P Chat</title>
@@ -235,6 +236,8 @@ input,button,textarea,select{font-family:inherit;}
   border-radius:8px;overflow:hidden;flex-direction:column;justify-content:center;gap:3px;}
 .ap-dl-bar-inner{height:3px;background:var(--accent);border-radius:3px;width:0;transition:width .2s;align-self:flex-start;}
 .ap-dl-label{font-size:.65rem;color:var(--muted-fg);}
+.ap-track-name{font-size:.7rem;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;}
+[data-theme=light] .ap-track-name{color:#5a7a96;}
 
 /* Custom Video Player */
 .vp{position:relative;border-radius:10px;overflow:hidden;background:#000;max-width:100%;max-height:260px;cursor:pointer;}
@@ -766,19 +769,32 @@ body.selecting .msg-row:not(.selected){opacity:1;}
   background: #f0f7ff !important;
   border-top: 1.5px solid rgba(33,150,243,0.2) !important;
   box-shadow: 0 -2px 12px rgba(33,150,243,0.08);
+  color-scheme: light;
 }
 [data-theme=light] .input-wrap {
   background: #ffffff !important;
   border: 1.5px solid rgba(33,150,243,0.25) !important;
   border-radius: 22px;
   box-shadow: 0 1px 4px rgba(33,150,243,0.08);
+  color-scheme: light;
 }
 [data-theme=light] .input-wrap:focus-within {
   border-color: #2196f3 !important;
   box-shadow: 0 0 0 3px rgba(33,150,243,0.12) !important;
 }
-[data-theme=light] #msg-input { color: #0d1b2a; }
+[data-theme=light] #msg-input {
+  color: #0d1b2a !important;
+  background: transparent !important;
+  -webkit-text-fill-color: #0d1b2a !important;
+  caret-color: #2196f3;
+}
 [data-theme=light] #msg-input::placeholder { color: #9ab8cc; }
+[data-theme=light] #msg-input:-webkit-autofill,
+[data-theme=light] #msg-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #0d1b2a !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  caret-color: #2196f3;
+}
 [data-theme=light] .send-btn {
   background: linear-gradient(135deg, #2196f3, #1976d2);
   box-shadow: 0 2px 10px rgba(33,150,243,0.4);
@@ -1630,7 +1646,7 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 <script>
 'use strict';
 /* ═══ Markdown + Syntax Highlighting (marked@9 API) ═══ */
-(()=>{try{
+function initMarkdown(){try{
   if(typeof marked==='undefined'){console.warn('[md] marked not loaded');return;}
   // marked@9 — pass everything in one marked.use() call
   const opts={breaks:true,gfm:true,pedantic:false};
@@ -1680,7 +1696,8 @@ body.selecting .msg-row:not(.selected){opacity:1;}
   };
   marked.use(opts);
   console.log('[md] marked@'+marked.VERSION+' ready, hljs='+(typeof hljs!=='undefined'));
-}catch(e){console.warn('[md] init error',e);}})();
+}catch(e){console.warn('[md] init error',e);}}
+initMarkdown();
 function esc2(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function _hasMdMarkers(t){
@@ -3299,7 +3316,7 @@ function addTextMsg(text,sender,senderId,isSelf,msgId,reply){
 }
 
 /* Custom audio player */
-function makeAudioPlayer(src,senderName){
+function makeAudioPlayer(src,senderName,trackName){
   const wrap=document.createElement('div');wrap.className='ap';
   wrap.dataset.sender=senderName||'';
   const pI='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
@@ -3312,12 +3329,13 @@ function makeAudioPlayer(src,senderName){
   fill.appendChild(thumb);track.appendChild(fill);
   const tme=document.createElement('span');tme.className='ap-time';tme.textContent='…';
   body.appendChild(track);body.appendChild(tme);
+  if(trackName){const tn=document.createElement('div');tn.className='ap-track-name';tn.textContent=trackName;body.appendChild(tn);}
   wrap.appendChild(pb);wrap.appendChild(body);
 
   // Download progress bar overlay
   const dlOverlay=document.createElement('div');dlOverlay.className='ap-dl-overlay';
   const dlBar=document.createElement('div');dlBar.className='ap-dl-bar-inner';
-  const dlLabel=document.createElement('span');dlLabel.className='ap-dl-label';dlLabel.textContent='Tap to load';
+  const dlLabel=document.createElement('span');dlLabel.className='ap-dl-label';dlLabel.textContent=trackName?('↓ '+trackName.substring(0,25)+(trackName.length>25?'…':'')):'↓ Loading…';
   dlOverlay.appendChild(dlBar);dlOverlay.appendChild(dlLabel);
   body.appendChild(dlOverlay);
 
@@ -3425,7 +3443,8 @@ function addFileMsg(d,sender,senderId,isSelf,overMsgId){
   }else if(cat==='video'){
     const vp=makeVideoPlayer(d.url);bub.appendChild(vp);
   }else if(cat==='audio'){
-    const ap=makeAudioPlayer(d.url,isSelf?myName:sender);bub.appendChild(ap);
+    const trackName=d.name&&d.name!==''?d.name:null;
+    const ap=makeAudioPlayer(d.url,isSelf?myName:sender,trackName);bub.appendChild(ap);
   }else{
     const a=document.createElement('a');a.className='file-link';a.href=d.url;
     a.download=d.name||'file';a.rel='noopener noreferrer';
@@ -3436,7 +3455,7 @@ function addFileMsg(d,sender,senderId,isSelf,overMsgId){
   const meta=document.createElement('div');meta.className='file-meta';
   // Download/delete handled via multi-select (long-press → toolbar)
   addTicksAndTime(meta,isSelf,mid);bub.appendChild(meta);row.appendChild(bub);
-  const previewText=cat==='audio'?'🎵 Voice message':(cat==='video'?'🎬 Video':'📎 '+(d.name||'file'));
+  const previewText=cat==='audio'?('🎵 '+(d.name||'Voice message')):(cat==='video'?'🎬 Video':'📎 '+(d.name||'file'));
   const replyFn=()=>setReply(mid,isSelf?myName:sender,previewText);
   rb.onclick=replyFn;attachSwipe(row,replyFn);
   if(mid){const sr=document.createElement('div');sr.className='seen-row';sr.id='sr-'+mid;wrap.appendChild(sr);}
@@ -3966,6 +3985,23 @@ window.onload=()=>{
   // Set base guard so first back press is handled (not a real browser-back)
   history.replaceState({guard:'login'},'');
   pushGuard('login');
+  /* ── Markdown runtime loader (fallback if SW didn't cache the file) ── */
+  (function ensureMarked(){
+    if(typeof marked!=='undefined')return; // already loaded
+    const s=document.createElement('script');
+    s.src='/js/marked.min.js';
+    s.onload=()=>{
+      if(typeof hljs==='undefined'){
+        const s2=document.createElement('script');
+        s2.src='/js/highlight.min.js';
+        s2.onload=()=>{ initMarkdown(); };
+        document.head.appendChild(s2);
+      } else { initMarkdown(); }
+    };
+    s.onerror=()=>console.warn('[md] failed to load marked.min.js');
+    document.head.appendChild(s);
+  })();
+
   // Register Service Worker for PWA
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('/sw.js').then(reg=>{
