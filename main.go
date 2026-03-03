@@ -4,20 +4,22 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
 
-//go:embed static/*
+//go:embed all:static
 var staticFiles embed.FS
 
-const maxUpload = 100 << 20 // 100 MB
+const maxUpload = 200 << 20 // 200 MB
 
 func main() {
 	port := flag.String("p", "", "Port to listen on (default: 8080, overrides PORT env var)")
@@ -50,7 +52,7 @@ func main() {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 		if err := r.ParseMultipartForm(maxUpload); err != nil {
-			http.Error(w, "File too large (max 100 MB)", 400)
+			http.Error(w, "File too large (max 200 MB)", 400)
 			return
 		}
 		file, header, err := r.FormFile("file")
@@ -83,8 +85,25 @@ func main() {
 		log.Printf("[upload] %s (%s) → %s", header.Filename, mime, filename)
 	})
 
-	// ── Serve uploaded files from disk ──
-	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
+	// ── Serve uploaded files from disk (also handle DELETE) ──
+	http.HandleFunc("/uploads/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" {
+			filename := strings.TrimPrefix(r.URL.Path, "/uploads/")
+			// Sanitize: no path traversal
+			if strings.Contains(filename, "/") || strings.Contains(filename, "..") {
+				http.Error(w, "Invalid", 400)
+				return
+			}
+			os.Remove("uploads/" + filename)
+			w.WriteHeader(204)
+			log.Printf("[delete] uploads/%s", filename)
+			return
+		}
+		// Force download with original filename so browser doesn't try to preview
+		filename := filepath.Base(r.URL.Path)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))).ServeHTTP(w, r)
+	})
 
 	// ── WebSocket ──
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +113,6 @@ func main() {
 	// ── Static files (embedded) ──
 	http.Handle("/", http.FileServer(http.FS(sub)))
 
-	log.Printf("P2P Chat server listening on :%s  (pass -p PORT to change)", listenPort)
+	log.Printf("P2P Chat server listening on :%s", listenPort)
 	log.Fatal(http.ListenAndServe(":"+listenPort, nil))
 }

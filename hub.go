@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -19,25 +21,29 @@ import (
 type PeerInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	IP   string `json:"ip,omitempty"`
 }
 
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
-	mu   sync.Mutex
-	id   string
-	name string
-	room string
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte
+	mu       sync.Mutex
+	id       string
+	name     string
+	room     string
+	password string
+	ip       string
 }
 
 type Hub struct {
-	mu         sync.RWMutex
-	rooms      map[string]map[string]*Client // room → peerId → Client
-	roomFiles  map[string][]string           // room → []local file paths to delete on empty
-	register   chan *Client
-	unregister chan *Client
-	signal     chan envelope
+	mu            sync.RWMutex
+	rooms         map[string]map[string]*Client // room → peerId → Client
+	roomFiles     map[string][]string           // room → []local file paths
+	roomPasswords map[string]string             // room → password ("" = open)
+	register      chan *Client
+	unregister    chan *Client
+	signal        chan envelope
 }
 
 type envelope struct {
@@ -45,7 +51,7 @@ type envelope struct {
 	raw    json.RawMessage
 }
 
-// ── Wire shapes ──
+// Wire shapes
 
 type inMsg struct {
 	Type string          `json:"type"`
@@ -67,11 +73,12 @@ type outMsg struct {
 
 func newHub() *Hub {
 	return &Hub{
-		rooms:      make(map[string]map[string]*Client),
-		roomFiles:  make(map[string][]string),
-		register:   make(chan *Client, 64),
-		unregister: make(chan *Client, 64),
-		signal:     make(chan envelope, 512),
+		rooms:         make(map[string]map[string]*Client),
+		roomFiles:     make(map[string][]string),
+		roomPasswords: make(map[string]string),
+		register:      make(chan *Client, 64),
+		unregister:    make(chan *Client, 64),
+		signal:        make(chan envelope, 512),
 	}
 }
 
@@ -81,6 +88,23 @@ func (h *Hub) run() {
 
 		case c := <-h.register:
 			h.mu.Lock()
+
+			members := h.rooms[c.room]
+			if len(members) > 0 {
+				// Room exists — validate password
+				if pw := h.roomPasswords[c.room]; pw != "" && c.password != pw {
+					h.mu.Unlock()
+					h.rejectClient(c, "wrong-password", "Wrong room password")
+					continue
+				}
+			} else {
+				// New room — set password if provided
+				if c.password != "" {
+					h.roomPasswords[c.room] = c.password
+				}
+			}
+
+			// Admit
 			if h.rooms[c.room] == nil {
 				h.rooms[c.room] = make(map[string]*Client)
 			}
@@ -91,7 +115,7 @@ func (h *Hub) run() {
 			c.sendJSON(outMsg{Type: "welcome", From: c.id, Peers: existing})
 			h.broadcastToRoom(c.room, c.id, outMsg{
 				Type: "peer-joined",
-				Peer: &PeerInfo{ID: c.id, Name: c.name},
+				Peer: &PeerInfo{ID: c.id, Name: c.name, IP: c.ip},
 			})
 			log.Printf("[join] %s (%s) → room %s  (%d peers)", c.name, c.id, c.room, len(existing)+1)
 
@@ -102,8 +126,9 @@ func (h *Hub) run() {
 			if _, ok := h.rooms[c.room][c.id]; ok {
 				delete(h.rooms[c.room], c.id)
 				if len(h.rooms[c.room]) == 0 {
+					// Room is now empty — destroy everything
 					delete(h.rooms, c.room)
-					// Collect files to delete — room is now empty
+					delete(h.roomPasswords, c.room) // destroy password
 					toDelete = h.roomFiles[c.room]
 					delete(h.roomFiles, c.room)
 				}
@@ -114,7 +139,7 @@ func (h *Hub) run() {
 			h.broadcastToRoom(c.room, c.id, outMsg{Type: "peer-left", From: c.id})
 			log.Printf("[left] %s (%s) ← room %s", c.name, c.id, c.room)
 
-			// Delete room's uploaded files in background
+			// Delete uploaded files in background
 			if len(toDelete) > 0 {
 				go func(files []string) {
 					for _, f := range files {
@@ -151,16 +176,15 @@ func (h *Hub) run() {
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: msg.Type,
 					From: env.sender.id,
-					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name},
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
 					Data: msg.Data,
 				})
-				// Track file path for room cleanup
 				if msg.Type == "file" {
 					var fd struct {
 						URL string `json:"url"`
 					}
 					if json.Unmarshal(msg.Data, &fd) == nil && fd.URL != "" {
-						fname := path.Base(fd.URL) // strips any base-path prefix
+						fname := path.Base(fd.URL)
 						if fname != "" && fname != "." && fname != "/" {
 							h.mu.Lock()
 							h.roomFiles[env.sender.room] = append(
@@ -176,7 +200,7 @@ func (h *Hub) run() {
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "typing",
 					From: env.sender.id,
-					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name},
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
 					Data: msg.Data,
 				})
 
@@ -189,7 +213,7 @@ func (h *Hub) run() {
 						target.sendJSON(outMsg{
 							Type: "seen",
 							From: env.sender.id,
-							Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name},
+							Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
 							Data: msg.Data,
 						})
 					}
@@ -199,12 +223,99 @@ func (h *Hub) run() {
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "voice-status",
 					From: env.sender.id,
-					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name},
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
+					Data: msg.Data,
+				})
+
+			case "call-invite", "call-cancel":
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: msg.Type,
+					From: env.sender.id,
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
+					Data: msg.Data,
+				})
+
+			case "call-response":
+				if msg.To != "" {
+					h.mu.RLock()
+					target := h.rooms[env.sender.room][msg.To]
+					h.mu.RUnlock()
+					if target != nil {
+						target.sendJSON(outMsg{
+							Type: "call-response",
+							From: env.sender.id,
+							Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
+							Data: msg.Data,
+						})
+					}
+				}
+
+			case "user-status":
+				// Broadcast away/online status to all peers
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "user-status",
+					From: env.sender.id,
+					Data: msg.Data,
+				})
+
+			case "msg-read":
+				// Broadcast read receipt to everyone else in room (incl. original sender)
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "msg-read",
+					From: env.sender.id,
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
+					Data: msg.Data,
+				})
+
+			case "file-deleted":
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "file-deleted",
+					From: env.sender.id,
+					Data: msg.Data,
+				})
+
+			case "edit-msg":
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "edit-msg",
+					From: env.sender.id,
+					Data: msg.Data,
+				})
+
+			case "delete-msg":
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "delete-msg",
+					From: env.sender.id,
+					Data: msg.Data,
+				})
+
+			case "admin-info":
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "admin-info",
+					From: env.sender.id,
 					Data: msg.Data,
 				})
 			}
 		}
 	}
+}
+
+// rejectClient sends an error then gracefully tears down the client.
+func (h *Hub) rejectClient(c *Client, code, message string) {
+	data, _ := json.Marshal(map[string]string{"code": code, "message": message})
+	errMsg, _ := json.Marshal(outMsg{Type: "error", Data: json.RawMessage(data)})
+
+	// Write directly to conn (writePump is blocked on empty send channel)
+	c.mu.Lock()
+	_ = c.conn.WriteMessage(websocket.TextMessage, errMsg)
+	c.mu.Unlock()
+
+	// After a brief flush window, close send channel and connection
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		defer func() { recover() }() // guard against double-close
+		close(c.send)                // exits writePump's range loop
+	}()
+	log.Printf("[reject] %s → room %s (%s)", c.name, c.room, code)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -214,7 +325,7 @@ func (h *Hub) run() {
 func (h *Hub) peersInRoom(room string) []PeerInfo {
 	var peers []PeerInfo
 	for _, c := range h.rooms[room] {
-		peers = append(peers, PeerInfo{ID: c.id, Name: c.name})
+		peers = append(peers, PeerInfo{ID: c.id, Name: c.name, IP: c.ip})
 	}
 	return peers
 }
@@ -227,10 +338,13 @@ func (h *Hub) broadcastToRoom(room, excludeID string, msg outMsg) {
 		if id == excludeID {
 			continue
 		}
-		select {
-		case c.send <- b:
-		default:
-		}
+		func() {
+			defer func() { recover() }() // guard send on closed channel
+			select {
+			case c.send <- b:
+			default:
+			}
+		}()
 	}
 }
 
@@ -239,6 +353,7 @@ func (c *Client) sendJSON(v any) {
 	if err != nil {
 		return
 	}
+	defer func() { recover() }() // guard send on closed channel
 	select {
 	case c.send <- b:
 	default:
@@ -256,6 +371,7 @@ var upgrader = websocket.Upgrader{
 func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
 	name := r.URL.Query().Get("name")
+	pass := r.URL.Query().Get("pass")
 	if room == "" {
 		room = "general"
 	}
@@ -269,13 +385,27 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get real IP from headers or RemoteAddr
+	ip := r.Header.Get("X-Real-Ip")
+	if ip == "" {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
+	if ip == "" {
+		ip = r.RemoteAddr
+		if h, _, err := net.SplitHostPort(ip); err == nil {
+			ip = h
+		}
+	}
+
 	c := &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
-		id:   uuid.New().String(),
-		name: name,
-		room: room,
+		hub:      hub,
+		conn:     conn,
+		send:     make(chan []byte, 256),
+		id:       uuid.New().String(),
+		name:     name,
+		room:     room,
+		password: pass,
+		ip:       ip,
 	}
 	hub.register <- c
 	go c.writePump()
