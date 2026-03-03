@@ -764,8 +764,6 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 /* ── Input area — solid visible background (mobile + desktop) ── */
 [data-theme=light] .input-area {
   background: #f0f7ff !important;
-  backdrop-filter: blur(20px) saturate(200%);
-  -webkit-backdrop-filter: blur(20px) saturate(200%);
   border-top: 1.5px solid rgba(33,150,243,0.2) !important;
   box-shadow: 0 -2px 12px rgba(33,150,243,0.08);
 }
@@ -993,17 +991,7 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 /* ── Room warning ── */
 [data-theme=light] .room-warning { background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.25); border-radius: 10px; }
 
-/* ── Input wrap ── */
-[data-theme=light] .input-wrap {
-  background: rgba(255,255,255,0.7);
-  border: 1.5px solid rgba(33,150,243,0.18);
-  border-radius: 22px;
-  backdrop-filter: blur(8px);
-}
-[data-theme=light] .input-wrap:focus-within {
-  border-color: rgba(33,150,243,0.4);
-  box-shadow: 0 0 0 3px rgba(33,150,243,0.1);
-}
+/* ── Input wrap (light theme — duplicates removed; authoritative rule is above) ── */
 /* ── Theme toggle btn ── */
 .theme-btn{background:none;border:none;cursor:pointer;color:var(--muted-fg);
   padding:4px 8px;border-radius:8px;transition:all .15s;font-size:1rem;

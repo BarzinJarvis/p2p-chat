@@ -1,10 +1,13 @@
-/* P2P Chat Service Worker — v3.6 */
-const CACHE = 'p2pchat-v3.16';
+/* P2P Chat Service Worker — v3.7 */
+const CACHE = 'p2pchat-v3.17';
 const APP_SHELL = [
   '/',
   '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/sw.js',
+  '/js/marked.min.js',
+  '/js/highlight.min.js',
+  '/js/highlight-dark.min.css',
+  '/js/highlight-light.min.css',
 ];
 
 /* Install — cache app shell */
@@ -61,7 +64,11 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return resp;
-      }).catch(() => caches.match('/'));
+      }).catch(() => {
+        // Only fall back to shell HTML for navigation requests — never for JS/CSS/fonts
+        if (e.request.mode === 'navigate') return caches.match('/');
+        return new Response('', { status: 503 });
+      });
     })
   );
 });
