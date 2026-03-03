@@ -1,3 +1,12 @@
 chat-linux-*
 uploads/
 *.log
+node_modules/
+package.json
+package-lock.json
+snap*.png
+test-results/
+test-screenshots/
+test*.mjs
+test/
+p2p-chat
