@@ -678,7 +678,8 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 [data-theme=light] .net-ping { color: #5a7a96; }
 
 /* ── Typing bar ── */
-[data-theme=light] .typing-bar { background: #f0f7ff; color: #5a7a96; }
+[data-theme=light] .typing-bar { background: #f0f7ff; color: #5a7a96; min-height: 0; padding: 0 14px; }
+[data-theme=light] .typing-bar:not(:empty) { min-height: 18px; padding: 2px 14px 4px; }
 
 /* ── "1 online" pill (hardcoded dark bg) ── */
 [data-theme=light] .pill-btn {
@@ -711,11 +712,10 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 }
 [data-theme=light] .icon-btn svg { color: inherit; }
 
-/* Ping badge */
+/* Ping badge — use explicit class names, NOT substring wildcard ([class*="ping"] matches .typing-bar!) */
 [data-theme=light] .ping-badge,
 [data-theme=light] .latency-badge,
-[data-theme=light] [class*="ping"],
-[data-theme=light] [class*="latency"] {
+[data-theme=light] .net-ping {
   background: rgba(33,150,243,0.1);
   color: #1565c0;
   border: 1px solid rgba(33,150,243,0.2);
