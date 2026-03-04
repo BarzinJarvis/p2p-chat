@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- p2p-chat v3.21 | SW cache: p2pchat-v3.23 -->
+<!-- p2p-chat v3.24 | SW cache: p2pchat-v3.24 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -805,33 +805,28 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 [data-theme=light] .bubble:hover,
 [data-theme=light] .file-bubble:hover { filter: brightness(.97); }
 
-/* ── Input area — use dark theme colors even in light mode (reliable on mobile) ── */
+/* ── Input area — light theme colors ── */
 [data-theme=light] .input-area {
-  background: #18181b !important;
-  border-top: 1px solid rgba(63,63,70,.5) !important;
+  background: rgba(255,255,255,0.85) !important;
+  border-top: 1px solid rgba(33,150,243,0.2) !important;
+  backdrop-filter: blur(12px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 [data-theme=light] .input-wrap {
-  background: #27272a !important;
-  border: 1px solid #3f3f46 !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(33,150,243,0.3) !important;
 }
 [data-theme=light] .input-wrap:focus-within {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99,102,241,.2) !important;
+  border-color: #2196f3 !important;
+  box-shadow: 0 0 0 3px rgba(33,150,243,.15) !important;
 }
 [data-theme=light] #msg-input {
-  color: #e2e8f0 !important;
+  color: #0d1b2a !important;
   background: transparent !important;
-  -webkit-text-fill-color: #e2e8f0 !important;
-  caret-color: #6366f1;
+  -webkit-text-fill-color: #0d1b2a !important;
+  caret-color: #2196f3;
+  color-scheme: light;
 }
-[data-theme=light] #msg-input::placeholder { color: #71717a !important; }
-[data-theme=light] .send-btn,
-[data-theme=light] .attach-btn,
-[data-theme=light] .record-btn { color: #a1a1aa; }
-[data-theme=light] .send-btn:hover,
-[data-theme=light] .attach-btn:hover,
-[data-theme=light] .record-btn:hover { color: #6366f1; }
 [data-theme=light] #msg-input::placeholder {
   color: #9ab8cc !important;
   -webkit-text-fill-color: #9ab8cc !important;
@@ -839,12 +834,18 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 }
 [data-theme=light] #msg-input:-webkit-autofill,
 [data-theme=light] #msg-input:-webkit-autofill:focus {
-  -webkit-text-fill-color: #e2e8f0 !important;
-  -webkit-box-shadow: 0 0 0 1000px #27272a inset !important;
-  caret-color: #6366f1;
+  -webkit-text-fill-color: #0d1b2a !important;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  caret-color: #2196f3;
 }
-[data-theme=light] .tool-btn { color: #a1a1aa; }
-[data-theme=light] .tool-btn:hover { color: #6366f1; background: rgba(99,102,241,0.1); border-radius: 50%; }
+[data-theme=light] .send-btn,
+[data-theme=light] .attach-btn,
+[data-theme=light] .record-btn { color: #5a7a96; }
+[data-theme=light] .send-btn:hover,
+[data-theme=light] .attach-btn:hover,
+[data-theme=light] .record-btn:hover { color: #2196f3; }
+[data-theme=light] .tool-btn { color: #5a7a96; }
+[data-theme=light] .tool-btn:hover { color: #2196f3; background: rgba(33,150,243,0.1); border-radius: 50%; }
 
 /* ── Reply / edit bar ── */
 [data-theme=light] .reply-preview,
