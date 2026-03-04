@@ -1,4 +1,4 @@
-/* P2P Chat Service Worker — v3.7 */
+/* P2P Chat Service Worker — v3.21 */
 const CACHE = 'p2pchat-v3.21';
 const APP_SHELL = [
   '/',

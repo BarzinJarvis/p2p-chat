@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- p2p-chat v3.21 | SW cache: p2pchat-v3.21 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -37,7 +38,9 @@
   src:url('/fonts/vazirmatn-arabic.woff2') format('woff2');}
 </style>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+.bubble-text,.bubble-text *,p,pre,code,blockquote{user-select:text;-webkit-user-select:text;}
+textarea,input[type="text"],input[type="search"]{user-select:text;-webkit-user-select:text;}
 :root{
   --bg:#09090b;--card:#18181b;--card2:#27272a;--border:#3f3f46;
   --muted:#71717a;--muted-fg:#a1a1aa;--fg:#fafafa;--fg2:#d4d4d8;
@@ -134,8 +137,8 @@ input,button,textarea,select{font-family:inherit;}
 .icon-btn.active{color:var(--green);background:rgba(34,197,94,.12);}
 
 /* Messages */
-.chat-body{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;
-  padding:14px 10px 8px;gap:2px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;}
+.chat-body{flex:1 1 0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;
+  padding:14px 10px 8px;gap:2px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;min-height:0;}
 .sys-line{display:flex;align-items:center;gap:8px;margin:10px 0;flex-shrink:0;}
 .sys-line::before,.sys-line::after{content:'';flex:1;height:1px;background:var(--border);}
 .sys-line span{font-size:.72rem;color:var(--muted-fg);white-space:nowrap;padding:0 6px;}
@@ -244,6 +247,18 @@ input,button,textarea,select{font-family:inherit;}
   border-radius:8px;overflow:hidden;flex-direction:column;justify-content:center;gap:3px;}
 .ap-dl-bar-inner{height:3px;background:var(--accent);border-radius:3px;width:0;transition:width .2s;align-self:flex-start;}
 .ap-dl-label{font-size:.65rem;color:var(--muted-fg);}
+/* Circular download progress (Telegram-style) */
+.ap-circle-wrap{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  border-radius:50%;background:transparent;pointer-events:none;}
+.ap-circle-wrap.active{display:flex;}
+.ap-ring-bg{fill:none;stroke:rgba(255,255,255,0.2);stroke-width:3;}
+.msg-row.other .ap-ring-bg{stroke:rgba(99,102,241,0.2);}
+.ap-ring-fg{fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;
+  stroke-dasharray:94.2;stroke-dashoffset:94.2;transition:stroke-dashoffset 0.15s linear;
+  transform-origin:center;transform:rotate(-90deg);}
+.msg-row.other .ap-ring-fg{stroke:#6366f1;}
+.ap-cancel-icon{font-size:10px;color:#fff;position:absolute;pointer-events:auto;cursor:pointer;}
+.msg-row.other .ap-cancel-icon{color:#6366f1;}
 .ap-track-name{font-size:.7rem;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;}
 [data-theme=light] .ap-track-name{color:#5a7a96;}
 
@@ -275,6 +290,9 @@ input,button,textarea,select{font-family:inherit;}
 .rp-text{font-size:.8rem;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rp-close{background:transparent;border:none;color:var(--muted-fg);cursor:pointer;padding:6px;border-radius:6px;display:flex;}
 .rp-close:hover{color:var(--fg);}
+
+/* Keyboard-safe layout for iOS/Android */
+.chat-root{height:100dvh;}
 
 /* Input area */
 .input-area{display:flex;align-items:flex-end;gap:6px;
@@ -775,9 +793,13 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 
 /* ── Input area — solid visible background (mobile + desktop) ── */
 [data-theme=light] .input-area {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
   background: #f0f7ff !important;
-  border-top: 1.5px solid rgba(33,150,243,0.2) !important;
+  border-top: 1px solid rgba(33,150,243,0.15) !important;
   box-shadow: 0 -2px 12px rgba(33,150,243,0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   color-scheme: light;
   forced-color-adjust: none;
 }
@@ -2500,7 +2522,33 @@ async function sendFile(fileOrBlob,filename,mime){
     wsSend({type:'file',data});
     hideReply(); // clear reply after sending
     $('msg-input').focus();
-  }catch(err){row.remove();toast('Upload failed: '+err.message,'err',null);}
+  }catch(err){
+    // Turn the pending row into a failed message card (sender-side only)
+    if(row&&row.parentNode){
+      const bubble=row.querySelector('.bubble')||row.querySelector('.file-bubble')||row;
+      bubble.style.cssText+=';border:1.5px solid #ef4444;background:rgba(239,68,68,0.08);opacity:1;';
+      const errRow=document.createElement('div');
+      errRow.style.cssText='display:flex;align-items:center;gap:6px;margin-top:4px;';
+      const errMsg=document.createElement('span');
+      errMsg.textContent='⚠ Upload failed';
+      errMsg.style.cssText='color:#ef4444;font-size:.72rem;flex:1;';
+      const retryBtn=document.createElement('button');
+      retryBtn.textContent='Retry';
+      retryBtn.style.cssText='font-size:.72rem;padding:2px 10px;border-radius:8px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;';
+      retryBtn.onclick=()=>{
+        errRow.remove();
+        bubble.style.border='';
+        bubble.style.background='';
+        sendFile(fileOrBlob,filename,mime);
+      };
+      errRow.appendChild(errMsg);errRow.appendChild(retryBtn);
+      row.appendChild(errRow);
+      const spinner=row.querySelector('.upload-progress, .ap-dl-overlay');
+      if(spinner)spinner.style.display='none';
+    }else{
+      toast('Upload failed: '+err.message,'err',null);
+    }
+  }
 }
 
 /* Voice recording */
@@ -3335,11 +3383,19 @@ function addTextMsg(text,sender,senderId,isSelf,msgId,reply){
 
 /* Custom audio player */
 function makeAudioPlayer(src,senderName,trackName){
+  const pid='ap'+Date.now()+Math.random().toString(36).slice(2,6);
   const wrap=document.createElement('div');wrap.className='ap';
   wrap.dataset.sender=senderName||'';
   const pI='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
   const sI='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+  // Wrap play button + ring in a relative container
+  const pbWrap=document.createElement('div');
+  pbWrap.style.cssText='position:relative;width:36px;height:36px;flex-shrink:0';
   const pb=document.createElement('button');pb.className='ap-play';pb.innerHTML=pI;
+  // Circular progress ring overlay
+  const ringWrap=document.createElement('div');ringWrap.className='ap-circle-wrap';ringWrap.id='ring-'+pid;
+  ringWrap.innerHTML=`<svg width="36" height="36" viewBox="0 0 36 36"><circle class="ap-ring-bg" cx="18" cy="18" r="15"/><circle class="ap-ring-fg" id="ring-arc-${pid}" cx="18" cy="18" r="15"/></svg><span class="ap-cancel-icon">✕</span>`;
+  pbWrap.appendChild(pb);pbWrap.appendChild(ringWrap);
   const body=document.createElement('div');body.className='ap-body';
   const track=document.createElement('div');track.className='ap-track';
   const fill=document.createElement('div');fill.className='ap-fill';
@@ -3348,16 +3404,9 @@ function makeAudioPlayer(src,senderName,trackName){
   const tme=document.createElement('span');tme.className='ap-time';tme.textContent='…';
   body.appendChild(track);body.appendChild(tme);
   if(trackName){const tn=document.createElement('div');tn.className='ap-track-name';tn.textContent=trackName;body.appendChild(tn);}
-  wrap.appendChild(pb);wrap.appendChild(body);
+  wrap.appendChild(pbWrap);wrap.appendChild(body);
 
-  // Download progress bar overlay
-  const dlOverlay=document.createElement('div');dlOverlay.className='ap-dl-overlay';
-  const dlBar=document.createElement('div');dlBar.className='ap-dl-bar-inner';
-  const dlLabel=document.createElement('span');dlLabel.className='ap-dl-label';dlLabel.textContent=trackName?('↓ '+trackName.substring(0,25)+(trackName.length>25?'…':'')):'↓ Loading…';
-  dlOverlay.appendChild(dlBar);dlOverlay.appendChild(dlLabel);
-  body.appendChild(dlOverlay);
-
-  let blobUrl=null,audio=null,loaded=false,loading=false;
+  let blobUrl=null,audio=null,loaded=false,loading=false,activeXhr=null;
 
   function setupAudio(url){
     audio=new Audio(url);audio.preload='auto';
@@ -3392,23 +3441,24 @@ function makeAudioPlayer(src,senderName,trackName){
 
   function startDownload(){
     if(loading)return;loading=true;
-    dlOverlay.style.display='flex';dlLabel.textContent='0%';pb.disabled=true;
-    const xhr=new XMLHttpRequest();xhr.open('GET',src);xhr.responseType='blob';
+    ringWrap.classList.add('active');pb.disabled=true;
+    const arc=document.getElementById('ring-arc-'+pid);
+    const cancelIcon=ringWrap.querySelector('.ap-cancel-icon');
+    const xhr=new XMLHttpRequest();activeXhr=xhr;xhr.open('GET',src);xhr.responseType='blob';
+    cancelIcon.onclick=e=>{e.stopPropagation();xhr.abort();ringWrap.classList.remove('active');pb.disabled=false;loading=false;activeXhr=null;};
     xhr.onprogress=e=>{
-      if(e.lengthComputable){
-        const pct=Math.round(e.loaded/e.total*100);
-        dlBar.style.width=pct+'%';
-        dlLabel.textContent=pct+'%';
-      }else{
-        dlLabel.textContent='Loading…';
+      if(e.lengthComputable&&arc){
+        const pct=e.loaded/e.total;
+        arc.style.strokeDashoffset=String(94.2*(1-pct));
       }
     };
     xhr.onload=()=>{
       loaded=true;blobUrl=URL.createObjectURL(xhr.response);
-      dlOverlay.style.display='none';
+      ringWrap.classList.remove('active');activeXhr=null;
       setupAudio(blobUrl);
     };
-    xhr.onerror=()=>{dlLabel.textContent='Load failed';pb.disabled=false;loading=false;};
+    xhr.onerror=()=>{ringWrap.classList.remove('active');pb.disabled=false;loading=false;activeXhr=null;};
+    xhr.onabort=()=>{loading=false;activeXhr=null;};
     xhr.send();
   }
 
@@ -3445,6 +3495,14 @@ function makeVideoPlayer(src){
 
 /* File messages */
 function mimeCategory(m=''){if(m.startsWith('image/'))return 'image';if(m.startsWith('video/'))return 'video';if(m.startsWith('audio/'))return 'audio';return 'file';}
+function isMusicFile(mime,name){
+  if(!mime&&!name)return false;
+  const musicMimes=['audio/mpeg','audio/mp3','audio/flac','audio/mp4','audio/x-m4a','audio/wav','audio/x-wav','audio/aiff'];
+  const musicExts=/\.(mp3|flac|m4a|aac|wav|aiff|wma|opus)$/i;
+  if(mime&&musicMimes.includes(mime))return true;
+  if(name&&musicExts.test(name))return true;
+  return false;
+}
 function addFileMsg(d,sender,senderId,isSelf,overMsgId){
   const mid=d.msgId||overMsgId||uid();
   const {row,wrap,rb}=makeRow(sender,senderId,isSelf);
@@ -3461,7 +3519,8 @@ function addFileMsg(d,sender,senderId,isSelf,overMsgId){
   }else if(cat==='video'){
     const vp=makeVideoPlayer(d.url);bub.appendChild(vp);
   }else if(cat==='audio'){
-    const trackName=d.name&&d.name!==''?d.name:null;
+    const rawTrackName=d.name&&d.name!==''?d.name:null;
+    const trackName=rawTrackName&&isMusicFile(d.mime,d.name)?('🎵 '+rawTrackName):rawTrackName;
     const ap=makeAudioPlayer(d.url,isSelf?myName:sender,trackName);bub.appendChild(ap);
   }else{
     const a=document.createElement('a');a.className='file-link';a.href=d.url;
