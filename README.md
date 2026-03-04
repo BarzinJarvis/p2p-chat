@@ -1,43 +1,117 @@
 # 💬 P2P Chat
 
-A lightweight, real-time group chat server with file sharing, voice calls, and reply threads — distributed as a **single self-contained binary**.
+A fast, privacy-friendly group chat — distributed as a **single self-contained binary**. No accounts, no database, no Docker. Just run it and share the link.
 
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
+
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td><img src="screenshots/01-join-desktop.png" alt="Join screen" width="480"/></td>
+    <td><img src="screenshots/03-chat-desktop.png" alt="Chat desktop" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Join screen</em></td>
+    <td align="center"><em>Chat room — Default dark theme</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/05-theme-ocean.png" alt="Ocean theme" width="480"/></td>
+    <td><img src="screenshots/04-chat-mobile.png" alt="Mobile view" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Ocean colour theme</em></td>
+    <td align="center"><em>Mobile responsive UI</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/06-theme-forest.png" alt="Forest theme" width="480"/></td>
+    <td><img src="screenshots/02-join-mobile.png" alt="Mobile join" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Forest colour theme</em></td>
+    <td align="center"><em>Join screen on mobile</em></td>
+  </tr>
+</table>
 
 ---
 
 ## ✨ Features
 
-| Feature | Details |
-|---|---|
-| 💬 Real-time messaging | WebSocket relay, works on LAN and internet |
-| 📎 File sharing | Images, video, audio, any file — up to 100 MB |
-| 🖼 Inline previews | Images (lightbox), video player, audio player |
-| 🎙 Voice messages | Record in-browser, upload and send as audio |
-| 📞 Voice calls | WebRTC peer-to-peer audio between room members |
-| ↩️ Reply threads | Swipe right (mobile) or hover button (desktop) |
-| ✓✓ Seen receipts | Single tick = sent, double tick = seen |
-| ⌨️ Typing indicators | Animated dots when someone is typing |
-| 🔔 Browser notifications | Desktop push when tab is unfocused |
-| 🗑 Auto file cleanup | Files deleted when last member leaves the room |
-| 🌐 Sub-path proxy ready | Works at `/` or `/chat/` behind Nginx |
-| 📦 Single binary | No Docker, no Node, no database — just run it |
+### 💬 Messaging
+- Real-time WebSocket messaging
+- Markdown rendering (bold, italic, code blocks with syntax highlighting)
+- Reply to any message (swipe right on mobile / hover button on desktop)
+- Edit sent messages
+- Admin delete-for-everyone
+- Message select mode (long-press)
+
+### 📎 File Sharing
+- Send images, video, audio, documents — up to **200 MB** per file
+- Inline image previews with lightbox zoom & pan
+- Inline video player
+- Paste-to-upload (Ctrl+V)
+- Drag-and-drop upload
+
+### 🎵 Audio & Voice
+- **Voice messages** — record in-browser, instant send
+- **Music file player** — XHR download with circular progress ring before playback
+- **Voice messages** — same download-first experience; tap ✕ to cancel mid-download
+- Auto-play next voice message when current one ends
+- Now-playing bar with seek track and sender info
+- Seek bar with touch support on mobile
+
+### 📞 Voice & Video Calls
+- Multi-user WebRTC voice calls (DTLS-SRTP encrypted, peer-to-peer)
+- Screen share
+- Flip camera
+- Mute / leave call controls
+- PiP (picture-in-picture) video overlay
+
+### 👥 User Experience
+- Seen-by avatars below messages (coloured initials as each peer reads)
+- Typing indicators with animated dots
+- User status (online / offline)
+- User-agent badges (Android / iOS / macOS / Windows)
+- User details popup
+- Scroll-to-new button with unread count badge
+- Sent sound, connection-lost beep
+- Auto-reconnect popup on disconnect
+
+### 🎨 Themes & UI
+- **4 dark themes:** Default, Ocean, Forest, Midnight
+- Frosted glass design language
+- Responsive — works on desktop and mobile browsers
+- Service Worker for offline support & instant reload on update
+
+### 🔒 Rooms & Security
+- Password-protected rooms
+- Room destroyed when last member leaves
+- Files auto-deleted when room empties
+- Transport encrypted over `wss://` (TLS)
+- No accounts — join with just a name and room password
+
+### 🌐 Deployment
+- Single binary, no dependencies
+- Works at `/` (root domain) or `/chat/` (sub-path) behind Nginx
+- Configurable port via `-p` flag or `$PORT` env var
+- Nginx prefix auto-detected in JavaScript
 
 ---
 
 ## 🚀 Quick Start
 
-### Download a release binary
-
 ```bash
-# Linux x86_64
+# Download (Linux x86_64)
 curl -L https://github.com/BarzinJarvis/p2p-chat/releases/latest/download/chat-linux-amd64 -o p2p-chat
 chmod +x p2p-chat
 ./p2p-chat -p 8080
 ```
 
-Then open `http://localhost:8080` in your browser.
+Open `http://localhost:8080` — enter a room name + password + your name and join.
 
 ### Build from source
 
@@ -48,37 +122,23 @@ go build -o p2p-chat .
 ./p2p-chat -p 8080
 ```
 
-**Requirements:** Go 1.22+
+**Requires:** Go 1.22+
 
 ---
 
-## ⚙️ Usage
+## ⚙️ CLI Options
 
 ```
 ./p2p-chat [OPTIONS]
 
-Options:
-  -p PORT    Port to listen on (default: 8080, overrides $PORT env var)
+  -p PORT    Listen port (default 8080, overrides $PORT)
 ```
-
-```bash
-# Default port 8080
-./p2p-chat
-
-# Custom port
-./p2p-chat -p 3000
-
-# Via environment variable
-PORT=3000 ./p2p-chat
-```
-
-Uploaded files are stored in `./uploads/` next to the binary and deleted automatically when all room members leave.
 
 ---
 
 ## 🌐 Nginx Reverse Proxy
 
-### At root domain (`https://chat.example.com`)
+### Root domain (`https://chat.example.com`)
 
 ```nginx
 server {
@@ -88,14 +148,13 @@ server {
     ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
-    client_max_body_size 100m;
+    client_max_body_size 200m;
 
     location /ws {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host       $host;
         proxy_read_timeout 86400;
     }
 
@@ -107,7 +166,7 @@ server {
 }
 ```
 
-### At sub-path (`https://example.com/chat/`)
+### Sub-path (`https://example.com/chat/`)
 
 ```nginx
 location /chat/ws {
@@ -123,32 +182,16 @@ location /chat/ {
     proxy_set_header Host      $host;
     proxy_set_header X-Real-IP $remote_addr;
 }
-
-location = /chat {
-    return 301 /chat/;
-}
-```
-
----
-
-## 🗓 File Cleanup Cron (optional)
-
-Files are already deleted when a room empties. For extra safety (e.g. server restarts), add a cron job:
-
-```bash
-# Delete uploads older than 4 hours
-0 */4 * * * find /path/to/uploads -type f -mmin +240 -delete
 ```
 
 ---
 
 ## 🔒 Security Notes
 
-- **Transport:** All traffic over `wss://` (TLS) is encrypted in transit — ISPs cannot read messages
-- **Server relay:** Text messages pass through the server (not true E2E encrypted). The server operator can read messages in transit.
-- **Voice calls:** WebRTC audio is DTLS-SRTP encrypted peer-to-peer — server never sees audio
-- **Rooms:** Anyone who knows the room name can join. Use a private room name for sensitive chats.
-- **No authentication:** No passwords, no accounts — security comes from room name secrecy
+- **In transit:** All traffic over `wss://` is TLS encrypted — ISPs cannot read messages
+- **Server relay:** Text messages pass through the server (not E2E encrypted). The server operator can read messages in transit.
+- **Voice/Video:** WebRTC is DTLS-SRTP peer-to-peer — server never handles audio/video
+- **Rooms:** Anyone with the room name + password can join. Use a private room name and strong password for sensitive chats.
 
 ---
 
@@ -156,12 +199,12 @@ Files are already deleted when a room empties. For extra safety (e.g. server res
 
 ```
 p2p-chat/
-├── main.go          # HTTP server, /upload endpoint, file serving
-├── hub.go           # WebSocket hub, room management, file cleanup
-├── go.mod
-├── go.sum
+├── main.go           # HTTP server, /upload, file serving, /uploads/ handler
+├── hub.go            # WebSocket hub, room management, file cleanup
+├── go.mod / go.sum
 └── static/
-    └── index.html   # Full single-page app (embedded in binary)
+    ├── index.html    # Full SPA — embedded in binary at build time
+    └── sw.js         # Service Worker (offline + cache busting)
 ```
 
 ---
