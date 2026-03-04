@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- p2p-chat v3.25 | SW cache: p2pchat-v3.26 -->
+<!-- p2p-chat v3.25 | SW cache: p2pchat-v3.27 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -237,6 +237,7 @@ input,button,textarea,select{font-family:inherit;}
 .ap-play:hover{transform:scale(1.08)}.ap-play:active{transform:scale(.95)}
 .ap-body{flex:1;min-width:0;}
 .ap-track{height:3px;background:rgba(255,255,255,.25);border-radius:2px;position:relative;cursor:pointer;margin-bottom:4px;}
+.ap-track::after{content:'';position:absolute;top:-10px;bottom:-10px;left:0;right:0;}
 .msg-row.other .ap-track{background:rgba(0,0,0,.2);}
 .ap-fill{height:100%;background:rgba(255,255,255,.8);border-radius:2px;width:0;position:relative;}
 .msg-row.other .ap-fill{background:var(--accent);}
@@ -260,8 +261,9 @@ input,button,textarea,select{font-family:inherit;}
 .ap-cancel-icon{font-size:11px;color:#fff;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;line-height:1;display:none;font-weight:700;}
 .msg-row.other .ap-cancel-icon{color:#6366f1;}
 /* Indeterminate spin (no content-length) */
-@keyframes ring-spin{to{transform:rotate(360deg);}}
-.ap-circle-wrap.indeterminate svg{animation:ring-spin 1s linear infinite;transform-origin:center;}
+@-webkit-keyframes ring-spin{to{-webkit-transform:rotate(360deg);transform:rotate(360deg);}}
+@keyframes ring-spin{to{-webkit-transform:rotate(360deg);transform:rotate(360deg);}}
+.ap-circle-wrap.indeterminate svg{-webkit-animation:ring-spin 1s linear infinite;animation:ring-spin 1s linear infinite;-webkit-transform-origin:50% 50%;transform-origin:50% 50%;}
 .ap-track-name{font-size:.7rem;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;}
 /* ── Music player (distinct from voice) ── */
 .ap.music{min-width:220px;max-width:300px;flex-direction:column;gap:6px;padding:10px;
@@ -1927,7 +1929,16 @@ function hideReply(){replyTo=null;$('reply-preview').classList.remove('show');}
 $('rp-close').onclick=hideReply;
 
 /* Send text */
-$('send-btn').onclick=sendMsg;
+$('send-btn').onclick=()=>{
+  if(recording){
+    // Stop recording and send the voice immediately
+    recCancelled=false;
+    if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();
+    recording=false;setRecUI(false);
+    return;
+  }
+  sendMsg();
+};
 const isMobileDevice=()=>/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||window.innerWidth<=768;
 $('msg-input').addEventListener('keydown',e=>{
   if(e.key==='Enter'){
@@ -2954,7 +2965,7 @@ function updateGridClass(){
 
 /* ═══ Message UI ═══ */
 function isAtBottom(){const m=$('messages');return m.scrollHeight-m.scrollTop-m.clientHeight<120;}
-function scrollBottom(){const m=$('messages');m.scrollTop=m.scrollHeight;unreadCount=0;hideScrollBtn();}
+function scrollBottom(){const m=$('messages');unreadCount=0;hideScrollBtn();m.scrollTop=m.scrollHeight;requestAnimationFrame(()=>{m.scrollTop=m.scrollHeight;});}
 function showScrollBtn(n){
   const btn=$('scroll-btn');if(!btn)return;
   $('scroll-count').textContent=n+' new';btn.style.display='flex';
@@ -3177,11 +3188,14 @@ function makeAudioPlayer(src,senderName,trackName,isMusic){
     audio.onloadedmetadata=()=>{
       if(isFinite(audio.duration))tme.textContent='0:00 / '+fmtTime(audio.duration);
     };
-    trackEl.addEventListener('click',e=>{
+    function seekBar(clientX){
       if(!audio||!isFinite(audio.duration))return;
       const rect=trackEl.getBoundingClientRect();
-      audio.currentTime=((e.clientX-rect.left)/rect.width)*audio.duration;
-    });
+      audio.currentTime=Math.max(0,Math.min(1,(clientX-rect.left)/rect.width))*audio.duration;
+    }
+    trackEl.addEventListener('click',e=>seekBar(e.clientX));
+    trackEl.addEventListener('touchstart',e=>{e.preventDefault();seekBar(e.touches[0].clientX);},{passive:false});
+    trackEl.addEventListener('touchmove',e=>{e.preventDefault();seekBar(e.touches[0].clientX);},{passive:false});
   }
 
   // ── Click handler ────────────────────────────────────────────────────────
