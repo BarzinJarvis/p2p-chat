@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- p2p-chat v3.21 | SW cache: p2pchat-v3.22 -->
+<!-- p2p-chat v3.21 | SW cache: p2pchat-v3.23 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -260,6 +260,20 @@ input,button,textarea,select{font-family:inherit;}
 .ap-cancel-icon{font-size:10px;color:#fff;position:absolute;pointer-events:auto;cursor:pointer;}
 .msg-row.other .ap-cancel-icon{color:#6366f1;}
 .ap-track-name{font-size:.7rem;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;}
+/* ── Music player (distinct from voice) ── */
+.ap.music{min-width:220px;max-width:300px;flex-direction:column;gap:6px;padding:10px;
+  background:rgba(99,102,241,.13);border-radius:14px;border:1px solid rgba(99,102,241,.25);}
+.ap.music .ap-top-row{display:flex;align-items:center;gap:10px;width:100%;}
+.ap.music .ap-play{width:44px;height:44px;background:var(--accent)!important;color:#fff;flex-shrink:0;}
+.ap.music .ap-music-icon{font-size:1.1rem;line-height:1;}
+.ap.music .ap-meta{flex:1;min-width:0;}
+.ap.music .ap-track-name{font-size:.8rem;font-weight:600;color:var(--fg);max-width:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
+.ap.music .ap-sender{font-size:.68rem;color:var(--muted-fg);}
+.ap.music .ap-bottom-row{display:flex;align-items:center;gap:8px;width:100%;}
+.ap.music .ap-track{flex:1;height:3px;margin-bottom:0;}
+.ap.music .ap-time{font-size:.65rem;opacity:.7;white-space:nowrap;}
+[data-theme=light] .ap.music{background:rgba(33,150,243,.08);border-color:rgba(33,150,243,.2);}
 [data-theme=light] .ap-track-name{color:#5a7a96;}
 
 /* Custom Video Player */
@@ -791,39 +805,33 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 [data-theme=light] .bubble:hover,
 [data-theme=light] .file-bubble:hover { filter: brightness(.97); }
 
-/* ── Input area — solid visible background (mobile + desktop) ── */
+/* ── Input area — use dark theme colors even in light mode (reliable on mobile) ── */
 [data-theme=light] .input-area {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  background: #f0f7ff !important;
-  border-top: 1px solid rgba(33,150,243,0.15) !important;
-  box-shadow: 0 -2px 12px rgba(33,150,243,0.08);
+  background: #18181b !important;
+  border-top: 1px solid rgba(63,63,70,.5) !important;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  color-scheme: light;
-  forced-color-adjust: none;
 }
 [data-theme=light] .input-wrap {
-  background: #ffffff !important;
-  border: 1.5px solid rgba(33,150,243,0.25) !important;
-  border-radius: 22px;
-  box-shadow: 0 1px 4px rgba(33,150,243,0.08);
-  color-scheme: light;
-  forced-color-adjust: none;
+  background: #27272a !important;
+  border: 1px solid #3f3f46 !important;
 }
 [data-theme=light] .input-wrap:focus-within {
-  border-color: #2196f3 !important;
-  box-shadow: 0 0 0 3px rgba(33,150,243,0.12) !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.2) !important;
 }
 [data-theme=light] #msg-input {
-  color: #0d1b2a !important;
-  background: #ffffff !important;
-  -webkit-text-fill-color: #0d1b2a !important;
-  caret-color: #2196f3;
-  -webkit-appearance: none;
-  appearance: none;
-  forced-color-adjust: none;
+  color: #e2e8f0 !important;
+  background: transparent !important;
+  -webkit-text-fill-color: #e2e8f0 !important;
+  caret-color: #6366f1;
 }
+[data-theme=light] #msg-input::placeholder { color: #71717a !important; }
+[data-theme=light] .send-btn,
+[data-theme=light] .attach-btn,
+[data-theme=light] .record-btn { color: #a1a1aa; }
+[data-theme=light] .send-btn:hover,
+[data-theme=light] .attach-btn:hover,
+[data-theme=light] .record-btn:hover { color: #6366f1; }
 [data-theme=light] #msg-input::placeholder {
   color: #9ab8cc !important;
   -webkit-text-fill-color: #9ab8cc !important;
@@ -831,19 +839,12 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 }
 [data-theme=light] #msg-input:-webkit-autofill,
 [data-theme=light] #msg-input:-webkit-autofill:focus {
-  -webkit-text-fill-color: #0d1b2a !important;
-  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
-  caret-color: #2196f3;
+  -webkit-text-fill-color: #e2e8f0 !important;
+  -webkit-box-shadow: 0 0 0 1000px #27272a inset !important;
+  caret-color: #6366f1;
 }
-[data-theme=light] .send-btn {
-  background: linear-gradient(135deg, #2196f3, #1976d2);
-  box-shadow: 0 2px 10px rgba(33,150,243,0.4);
-}
-[data-theme=light] .send-btn svg { color: #fff; }
-[data-theme=light] .attach-btn,
-[data-theme=light] .tool-btn { color: #2196f3; }
-[data-theme=light] .attach-btn:hover,
-[data-theme=light] .tool-btn:hover { color: #1565c0; background: rgba(33,150,243,0.08); border-radius: 50%; }
+[data-theme=light] .tool-btn { color: #a1a1aa; }
+[data-theme=light] .tool-btn:hover { color: #6366f1; background: rgba(99,102,241,0.1); border-radius: 50%; }
 
 /* ── Reply / edit bar ── */
 [data-theme=light] .reply-preview,
@@ -1724,7 +1725,8 @@ function initMarkdown(){try{
         codeContent=highlighted;
       }
       const langLabel=lang?`<span class="code-lang-label">${esc2(lang)}</span>`:'';
-      return `<div class="code-block"><div class="code-block-hdr">${langLabel}<button class="copy-code-btn" onclick="copyCodeBlock(this)">Copy</button></div><pre><code class="${codeClass}">${codeContent}</code></pre></div>\n`;
+      // No inline onclick — sanitizer strips on* handlers. Use event delegation instead (see DOMContentLoaded).
+      return `<div class="code-block"><div class="code-block-hdr">${langLabel}<button class="copy-code-btn" type="button">Copy</button></div><pre><code class="${codeClass}">${codeContent}</code></pre></div>\n`;
     },
     table(token) {
       // Render table header
@@ -3411,43 +3413,80 @@ function addTextMsg(text,sender,senderId,isSelf,msgId,reply){
 }
 
 /* Custom audio player */
-function makeAudioPlayer(src,senderName,trackName){
+function makeAudioPlayer(src,senderName,trackName,isMusic){
   const pid='ap'+Date.now()+Math.random().toString(36).slice(2,6);
-  const wrap=document.createElement('div');wrap.className='ap';
-  wrap.dataset.sender=senderName||'';
   const pI='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
   const sI='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
-  // Wrap play button + ring in a relative container
+
+  // ── Build play button + buffering ring ───────────────────────────────────
+  const ringSize=isMusic?44:36;
   const pbWrap=document.createElement('div');
-  pbWrap.style.cssText='position:relative;width:36px;height:36px;flex-shrink:0';
+  pbWrap.style.cssText=`position:relative;width:${ringSize}px;height:${ringSize}px;flex-shrink:0`;
   const pb=document.createElement('button');pb.className='ap-play';pb.innerHTML=pI;
-  // Circular progress ring overlay
-  const ringWrap=document.createElement('div');ringWrap.className='ap-circle-wrap';ringWrap.id='ring-'+pid;
-  ringWrap.innerHTML=`<svg width="36" height="36" viewBox="0 0 36 36"><circle class="ap-ring-bg" cx="18" cy="18" r="15"/><circle class="ap-ring-fg" id="ring-arc-${pid}" cx="18" cy="18" r="15"/></svg><span class="ap-cancel-icon">✕</span>`;
+  const r=ringSize,cx=r/2,cy=r/2,radius=r/2-3;
+  const circ=2*Math.PI*radius;
+  const ringWrap=document.createElement('div');ringWrap.className='ap-circle-wrap';
+  ringWrap.innerHTML=`<svg width="${r}" height="${r}" viewBox="0 0 ${r} ${r}"><circle class="ap-ring-bg" cx="${cx}" cy="${cy}" r="${radius}"/><circle class="ap-ring-fg" id="ring-arc-${pid}" cx="${cx}" cy="${cy}" r="${radius}"/></svg>`;
+  // set dasharray to match new size
   pbWrap.appendChild(pb);pbWrap.appendChild(ringWrap);
-  const body=document.createElement('div');body.className='ap-body';
-  const track=document.createElement('div');track.className='ap-track';
+
+  // ── Build track + time ───────────────────────────────────────────────────
+  const trackEl=document.createElement('div');trackEl.className='ap-track';
   const fill=document.createElement('div');fill.className='ap-fill';
   const thumb=document.createElement('div');thumb.className='ap-thumb';
-  fill.appendChild(thumb);track.appendChild(fill);
-  const tme=document.createElement('span');tme.className='ap-time';tme.textContent='…';
-  body.appendChild(track);body.appendChild(tme);
-  if(trackName){const tn=document.createElement('div');tn.className='ap-track-name';tn.textContent=trackName;body.appendChild(tn);}
-  wrap.appendChild(pbWrap);wrap.appendChild(body);
+  fill.appendChild(thumb);trackEl.appendChild(fill);
+  const tme=document.createElement('span');tme.className='ap-time';tme.textContent='0:00';
 
-  let blobUrl=null,audio=null,loaded=false,loading=false,activeXhr=null;
+  // ── Assemble wrapper ─────────────────────────────────────────────────────
+  const wrap=document.createElement('div');
+  wrap.className=isMusic?'ap music':'ap';
+  wrap.dataset.sender=senderName||'';
 
-  function setupAudio(url){
-    audio=new Audio(url);audio.preload='auto';
-    function updateDur(){if(isFinite(audio.duration)&&audio.duration>0){tme.textContent='0:00 / '+fmtTime(audio.duration);}}
-    pb.disabled=false;
-    pb.onclick=()=>{
-      if(audio.paused){audio.play();showNowPlaying(audio,wrap.dataset.sender||'Voice',tme);}
-      else{audio.pause();hideNowPlaying();}
-    };
-    audio.onplay=()=>{pb.innerHTML=sI;registerAudioPlay(wrap,audio);};
+  if(isMusic){
+    // Music layout: top row (play + meta) + bottom row (track + time)
+    const topRow=document.createElement('div');topRow.className='ap-top-row';
+    const meta=document.createElement('div');meta.className='ap-meta';
+    const tn=document.createElement('div');tn.className='ap-track-name';
+    tn.textContent=(trackName||'Music').replace(/^🎵\s*/,'');
+    const sn=document.createElement('div');sn.className='ap-sender';sn.textContent=senderName||'';
+    meta.appendChild(tn);meta.appendChild(sn);
+    topRow.appendChild(pbWrap);topRow.appendChild(meta);
+    const botRow=document.createElement('div');botRow.className='ap-bottom-row';
+    botRow.appendChild(trackEl);botRow.appendChild(tme);
+    wrap.appendChild(topRow);wrap.appendChild(botRow);
+  }else{
+    // Voice layout: horizontal (play | track + time + name)
+    const body=document.createElement('div');body.className='ap-body';
+    body.appendChild(trackEl);body.appendChild(tme);
+    if(trackName){const tnEl=document.createElement('div');tnEl.className='ap-track-name';tnEl.textContent=trackName;body.appendChild(tnEl);}
+    wrap.appendChild(pbWrap);wrap.appendChild(body);
+  }
+
+  // ── Audio logic ──────────────────────────────────────────────────────────
+  // Use direct src (no XHR) so audio.play() is called within user gesture context → works on mobile
+  let audio=null,arc=null;
+
+  function showRing(){ringWrap.classList.add('active');pb.style.opacity='0';}
+  function hideRing(){ringWrap.classList.remove('active');pb.style.opacity='1';}
+
+  function setupAudio(){
+    if(audio)return;
+    audio=new Audio();
+    audio.preload='auto';
+    arc=document.getElementById('ring-arc-'+pid);
+    if(arc){arc.style.strokeDasharray=String(circ);arc.style.strokeDashoffset=String(circ);}
+
+    audio.onwaiting=()=>showRing();
+    audio.oncanplay=()=>hideRing();
+    audio.onplaying=()=>{pb.innerHTML=sI;hideRing();registerAudioPlay(wrap,audio);};
     audio.onpause=()=>{pb.innerHTML=pI;};
     audio.onended=()=>{pb.innerHTML=pI;hideNowPlaying();autoPlayNext(wrap);};
+    audio.onprogress=()=>{
+      if(audio.duration&&audio.buffered.length&&arc){
+        const pct=audio.buffered.end(audio.buffered.length-1)/audio.duration;
+        arc.style.strokeDashoffset=String(circ*(1-pct));
+      }
+    };
     audio.ontimeupdate=()=>{
       if(!isFinite(audio.duration))return;
       const pct=audio.currentTime/audio.duration*100;
@@ -3455,44 +3494,34 @@ function makeAudioPlayer(src,senderName,trackName){
       tme.textContent=fmtTime(audio.currentTime)+' / '+fmtTime(audio.duration);
       updateNowPlayingTime(tme.textContent,pct);
     };
-    audio.onloadedmetadata=()=>{updateDur();};
-    audio.ondurationchange=()=>{updateDur();};
-    track.addEventListener('click',e=>{
+    audio.onloadedmetadata=()=>{
+      if(isFinite(audio.duration))tme.textContent='0:00 / '+fmtTime(audio.duration);
+    };
+    trackEl.addEventListener('click',e=>{
       if(!audio||!isFinite(audio.duration))return;
-      const r=track.getBoundingClientRect();
-      audio.currentTime=((e.clientX-r.left)/r.width)*audio.duration;
+      const rect=trackEl.getBoundingClientRect();
+      audio.currentTime=((e.clientX-rect.left)/rect.width)*audio.duration;
     });
-    // Auto-play after load
-    audio.play().then(()=>{
-      showNowPlaying(audio,wrap.dataset.sender||'Voice',tme);
-    }).catch(()=>{});
   }
 
-  function startDownload(){
-    if(loading)return;loading=true;
-    ringWrap.classList.add('active');pb.disabled=true;
-    const arc=document.getElementById('ring-arc-'+pid);
-    const cancelIcon=ringWrap.querySelector('.ap-cancel-icon');
-    const xhr=new XMLHttpRequest();activeXhr=xhr;xhr.open('GET',src);xhr.responseType='blob';
-    cancelIcon.onclick=e=>{e.stopPropagation();xhr.abort();ringWrap.classList.remove('active');pb.disabled=false;loading=false;activeXhr=null;};
-    xhr.onprogress=e=>{
-      if(e.lengthComputable&&arc){
-        const pct=e.loaded/e.total;
-        arc.style.strokeDashoffset=String(94.2*(1-pct));
-      }
-    };
-    xhr.onload=()=>{
-      loaded=true;blobUrl=URL.createObjectURL(xhr.response);
-      ringWrap.classList.remove('active');activeXhr=null;
-      setupAudio(blobUrl);
-    };
-    xhr.onerror=()=>{ringWrap.classList.remove('active');pb.disabled=false;loading=false;activeXhr=null;};
-    xhr.onabort=()=>{loading=false;activeXhr=null;};
-    xhr.send();
-  }
-
-  // Click to start download & play
-  pb.onclick=()=>startDownload();
+  // First click: init audio + play (MUST be in user gesture for mobile autoplay)
+  pb.onclick=()=>{
+    if(!audio){
+      setupAudio();
+      audio.src=src;
+      showRing();
+      audio.play()
+        .then(()=>showNowPlaying(audio,senderName||'Voice',tme))
+        .catch(()=>hideRing());
+    }else if(audio.paused){
+      audio.play()
+        .then(()=>showNowPlaying(audio,senderName||'Voice',tme))
+        .catch(()=>{});
+    }else{
+      audio.pause();
+      hideNowPlaying();
+    }
+  };
   return wrap;
 }
 
@@ -3549,8 +3578,9 @@ function addFileMsg(d,sender,senderId,isSelf,overMsgId){
     const vp=makeVideoPlayer(d.url);bub.appendChild(vp);
   }else if(cat==='audio'){
     const rawTrackName=d.name&&d.name!==''?d.name:null;
-    const trackName=rawTrackName&&isMusicFile(d.mime,d.name)?('🎵 '+rawTrackName):rawTrackName;
-    const ap=makeAudioPlayer(d.url,isSelf?myName:sender,trackName);bub.appendChild(ap);
+    const music=isMusicFile(d.mime,d.name);
+    const trackName=rawTrackName||null;
+    const ap=makeAudioPlayer(d.url,isSelf?myName:sender,trackName,music);bub.appendChild(ap);
   }else{
     const a=document.createElement('a');a.className='file-link';a.href=d.url;
     a.download=d.name||'file';a.rel='noopener noreferrer';
@@ -4085,6 +4115,12 @@ function showUserPopup(id){
   $('user-popup').style.display='flex';
 }
 function closeUserPopup(){$('user-popup').style.display='none';}
+
+// Global event delegation for copy buttons (inline onclick stripped by sanitizer)
+document.addEventListener('click',function(e){
+  const btn=e.target.closest('.copy-code-btn');
+  if(btn){e.preventDefault();copyCodeBlock(btn);}
+});
 
 window.onload=()=>{
   $('name-input').focus();

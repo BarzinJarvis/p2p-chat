@@ -1,5 +1,5 @@
 /* P2P Chat Service Worker — v3.21 */
-const CACHE = 'p2pchat-v3.22';
+const CACHE = 'p2pchat-v3.23';
 const APP_SHELL = [
   '/',
   '/manifest.json',
