@@ -364,6 +364,15 @@ func (c *Client) sendJSON(v any) {
 // WebSocket upgrade + pumps
 // ──────────────────────────────────────────────────────────────────────────────
 
+const (
+	// How often the server pings each client.
+	pingInterval = 25 * time.Second
+	// How long the server waits for a pong before killing the connection.
+	// Ghost clients (abruptly dropped connections) are detected within
+	// pingInterval + pongWait = ~35 seconds.
+	pongWait = 10 * time.Second
+)
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -415,6 +424,16 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 func (c *Client) readPump() {
 	defer func() { c.hub.unregister <- c }()
 	c.conn.SetReadLimit(128 * 1024)
+
+	// Set initial read deadline; reset on every pong received.
+	// If no pong arrives within pongWait after a ping, ReadMessage returns an
+	// error and the ghost client is immediately unregistered.
+	c.conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
+		return nil
+	})
+
 	for {
 		_, raw, err := c.conn.ReadMessage()
 		if err != nil {
@@ -425,13 +444,35 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) writePump() {
-	for msg := range c.send {
-		c.mu.Lock()
-		err := c.conn.WriteMessage(websocket.TextMessage, msg)
-		c.mu.Unlock()
-		if err != nil {
-			break
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			if !ok {
+				// send channel was closed — write a close frame and exit
+				c.mu.Lock()
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.mu.Unlock()
+				return
+			}
+			c.mu.Lock()
+			err := c.conn.WriteMessage(websocket.TextMessage, msg)
+			c.mu.Unlock()
+			if err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			// Send a ping frame; if the client is gone it won't pong back and
+			// readPump's deadline will fire, unregistering the ghost.
+			c.mu.Lock()
+			err := c.conn.WriteMessage(websocket.PingMessage, nil)
+			c.mu.Unlock()
+			if err != nil {
+				return
+			}
 		}
 	}
-	c.conn.Close()
 }

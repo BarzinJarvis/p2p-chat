@@ -1728,6 +1728,19 @@ async function onSig(msg){
         sysLine('Reconnected ✓');
       }
       setSub('Connected',true);
+      // ── Ghost cleanup on reconnect ──────────────────────────────────────────
+      // The server sends the authoritative peer list. Destroy any local peer
+      // slots that no longer exist on the server (stale from previous session).
+      const serverPeerIds=new Set((msg.peers||[]).map(p=>p.id));
+      Object.keys(peers).forEach(id=>{
+        if(!serverPeerIds.has(id)){
+          removeVideoTile(id);
+          destroyPeer(id);
+          delete voiceUsers[id];
+          if(typingMap[id]){clearTimeout(typingMap[id].timer);delete typingMap[id];}
+        }
+      });
+      // ────────────────────────────────────────────────────────────────────────
       renderUsers(msg.peers||[]);
       onlineCnt=(msg.peers||[]).length+1;updOnline();
       (msg.peers||[]).forEach(p=>{
@@ -1741,6 +1754,22 @@ async function onSig(msg){
     }
     case 'peer-joined':{
       const p=msg.peer;
+      // ── Same-name ghost cleanup ─────────────────────────────────────────────
+      // If a user reconnects they get a new UUID but the same name. Find and
+      // destroy any ghost slot with the same name so they don't appear twice.
+      let ghostsDestroyed=0;
+      Object.keys(peers).forEach(id=>{
+        if(id!==p.id && peers[id].name===p.name){
+          removeVideoTile(id);
+          destroyPeer(id);
+          delete voiceUsers[id];
+          if(typingMap[id]){clearTimeout(typingMap[id].timer);delete typingMap[id];}
+          ghostsDestroyed++;
+        }
+      });
+      // Subtract ghost count so the subsequent onlineCnt++ results in net 0
+      onlineCnt=Math.max(1,onlineCnt-ghostsDestroyed);
+      // ────────────────────────────────────────────────────────────────────────
       if(!peers[p.id])initSlot(p.id,p.name);
       peers[p.id].name=p.name;
       peers[p.id].ip=p.ip||'';
