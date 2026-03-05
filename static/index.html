@@ -1593,6 +1593,7 @@ let lightboxOpen=false;
 let _lbClosing=false;
 let editingMsgId=null;
 let unreadCount=0;
+let _atBottom=true; // tracks scroll position BEFORE new messages land
 let isAdmin=false;
 let adminPeerId=null;
 function enq(fn){sigQ=sigQ.then(fn).catch(console.warn);}
@@ -3064,9 +3065,12 @@ function showScrollBtn(n){
 }
 function hideScrollBtn(){const btn=$('scroll-btn');if(btn)btn.style.display='none';unreadCount=0;}
 $('scroll-btn').onclick=()=>{scrollBottom();};
-$('messages').addEventListener('scroll',()=>{if(isAtBottom()){hideScrollBtn();}});
+$('messages').addEventListener('scroll',()=>{_atBottom=isAtBottom();if(_atBottom){hideScrollBtn();}});
 function onNewMessage(isSelf){
-  if(isSelf||isAtBottom()){scrollBottom();return;}
+  // Use _atBottom (captured by scroll listener before this message was appended)
+  // isAtBottom() here would be wrong — scrollHeight already grew, so it would
+  // return false even if the user WAS at the bottom before the message arrived.
+  if(isSelf||_atBottom){scrollBottom();_atBottom=true;return;}
   unreadCount++;showScrollBtn(unreadCount);
 }
 function makeRow(sender,senderId,isSelf){
