@@ -204,6 +204,16 @@ func (h *Hub) run() {
 					Data: msg.Data,
 				})
 
+			case "uploading":
+				// Broadcast file-upload progress notification to all peers in room.
+				// Sender sets isUploading:true on start, false on finish/fail.
+				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+					Type: "uploading",
+					From: env.sender.id,
+					Peer: &PeerInfo{ID: env.sender.id, Name: env.sender.name, IP: env.sender.ip},
+					Data: msg.Data,
+				})
+
 			case "seen":
 				if msg.To != "" {
 					h.mu.RLock()

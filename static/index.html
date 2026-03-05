@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- p2p-chat v3.28 | SW cache: p2pchat-v3.28 -->
+<!-- p2p-chat v3.29 | SW cache: p2pchat-v3.29 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -163,6 +163,11 @@ input,button,textarea,select{font-family:inherit;}
   font-size:.9rem;line-height:1.55;min-width:0;max-width:100%;
   transition:transform .15s cubic-bezier(.25,.46,.45,.94);user-select:text;-webkit-user-select:text;}
 .bubble{padding:10px 14px;}
+/* Single-emoji message: transparent box, large emoji like Telegram */
+.bubble.emoji-only{background:transparent!important;border:none!important;
+  box-shadow:none!important;padding:4px 2px!important;}
+.bubble.emoji-only .bubble-text{font-size:3.2rem;line-height:1.15;}
+.bubble.emoji-only .bubble-meta{margin-top:2px;}
 .msg-row.self .bubble,.msg-row.self .file-bubble{
   background:linear-gradient(135deg,var(--accent),#7c3aed);color:#fff;
   border-radius:18px 18px 4px 18px;box-shadow:0 4px 16px rgba(99,102,241,.2);}
@@ -1455,6 +1460,23 @@ function addCopyButtons(el){
     pre.style.position='relative';pre.appendChild(btn);
   });
 }
+/* Returns true if text is a single emoji grapheme cluster (no surrounding text).
+   Uses Intl.Segmenter when available (Chrome 87+, Firefox 116+), falls back to
+   a simple Unicode emoji regex for older browsers. */
+function isSingleEmoji(text){
+  const t=text.trim();
+  if(!t)return false;
+  try{
+    if(typeof Intl!=='undefined'&&Intl.Segmenter){
+      const segs=[...new Intl.Segmenter('en',{granularity:'grapheme'}).segment(t)];
+      // Allow up to 3 graphemes to cover ZWJ sequences rendered as one visual emoji
+      return segs.length<=3&&/^\p{Emoji}/u.test(t)&&!/[a-zA-Z0-9]/.test(t);
+    }
+  }catch(_){}
+  // Fallback: short text that starts with emoji and has no word chars
+  return t.length<=8&&/^\p{Emoji}\uFE0F?(\u200D\p{Emoji}\uFE0F?)*$/u.test(t);
+}
+
 function setBubbleText(el,text){
   if(typeof marked!=='undefined'&&_hasMdMarkers(text)){
     el.innerHTML=renderMessage(text);
@@ -1560,7 +1582,7 @@ let localStream=null,voiceActive=false,muted=false;
 let localVideoStream=null,videoActive=false,camOff=false;
 let vcTimerIv=null,vcStartTime=0;
 let sigQ=Promise.resolve();
-let onlineCnt=1,typingMap={},voiceUsers={};
+let onlineCnt=1,typingMap={},voiceUsers={},uploadingMap={};
 let myTypTimer=null,lastSndr=null;
 let myMsgs={},msgCache={};
 let replyTo=null;
@@ -1640,7 +1662,7 @@ $('leave-btn').onclick=()=>{
   $('join-screen').style.display='';
   $('messages').innerHTML='<div id="msg-spacer" style="flex:1;min-height:0"></div>';
   $('user-list').innerHTML='';
-  typingMap={};voiceUsers={};renderTyping();updCallMembers();
+  typingMap={};uploadingMap={};voiceUsers={};renderTyping();updCallMembers();
   lastSndr=null;replyTo=null;hideReply();
   $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
   endVideoCall();
@@ -1786,8 +1808,9 @@ async function onSig(msg){
       removeVideoTile(pid);
       destroyPeer(pid);delete voiceUsers[pid];
       onlineCnt=Math.max(1,onlineCnt-1);updOnline();
-      if(typingMap[pid]){clearTimeout(typingMap[pid].timer);delete typingMap[pid];renderTyping();}
-      updCallMembers();break;
+      if(typingMap[pid]){clearTimeout(typingMap[pid].timer);delete typingMap[pid];}
+      if(uploadingMap[pid]){clearTimeout(uploadingMap[pid].timer);delete uploadingMap[pid];}
+      renderTyping();updCallMembers();break;
     }
     case 'signal':{
       const from=msg.from;if(!peers[from])initSlot(from,'(peer)');
@@ -1835,6 +1858,19 @@ async function onSig(msg){
         if(typingMap[pid])clearTimeout(typingMap[pid].timer);
         typingMap[pid]={name:pnm,timer:setTimeout(()=>{delete typingMap[pid];renderTyping();},4000)};
       }else{if(typingMap[pid]){clearTimeout(typingMap[pid].timer);delete typingMap[pid];}}
+      renderTyping();break;
+    }
+    case 'uploading':{
+      // "X is uploading a file..." indicator in the typing bar
+      const pid=msg.from,pnm=msg.peer?.name||peers[pid]?.name||'Someone';
+      if(msg.data?.isUploading){
+        // Auto-expire after 60s in case the finish event is missed (network drop etc.)
+        if(uploadingMap[pid])clearTimeout(uploadingMap[pid].timer);
+        uploadingMap[pid]={name:pnm,filename:msg.data?.filename||'',
+          timer:setTimeout(()=>{delete uploadingMap[pid];renderTyping();},60000)};
+      }else{
+        if(uploadingMap[pid]){clearTimeout(uploadingMap[pid].timer);delete uploadingMap[pid];}
+      }
       renderTyping();break;
     }
     case 'voice-status':{
@@ -1934,12 +1970,25 @@ async function onSig(msg){
 
 /* Typing */
 function renderTyping(){
-  const bar=$('typing-bar'),names=Object.values(typingMap).map(t=>t.name);
-  if(!names.length){bar.innerHTML='';return;}
-  const lbl=names.length===1?`<b>${esc(names[0])}</b> is typing`
-    :names.length===2?`<b>${esc(names[0])}</b> and <b>${esc(names[1])}</b> are typing`
-    :'Several people are typing';
-  bar.innerHTML=`<span>${lbl}</span><div class="tdots"><span></span><span></span><span></span></div>`;
+  const bar=$('typing-bar');
+  const typers=Object.values(typingMap).map(t=>t.name);
+  const uploaders=Object.values(uploadingMap);
+
+  const parts=[];
+  if(typers.length){
+    const lbl=typers.length===1?`<b>${esc(typers[0])}</b> is typing`
+      :typers.length===2?`<b>${esc(typers[0])}</b> and <b>${esc(typers[1])}</b> are typing`
+      :'Several people are typing';
+    parts.push(`<span>${lbl}</span><div class="tdots"><span></span><span></span><span></span></div>`);
+  }
+  if(uploaders.length){
+    const ul=uploaders[0];
+    const lbl=uploaders.length===1
+      ?`<b>${esc(ul.name)}</b> is uploading <em>${esc(ul.filename||'a file')}</em>`
+      :`<b>${uploaders.length} people</b> are uploading files`;
+    parts.push(`<span>📎 ${lbl}</span>`);
+  }
+  bar.innerHTML=parts.length?parts.join('<span style="margin:0 6px;opacity:.4">·</span>'):'';
 }
 $('msg-input').addEventListener('input',()=>{
   resize();
@@ -2208,6 +2257,8 @@ async function sendFile(fileOrBlob,filename,mime){
   const msgId=uid();
   const currentReply=replyTo; // capture before hideReply clears it
   const row=addFileMsgPending(filename,mime,myName,myId,msgId);
+  // Notify peers that a file upload is starting
+  wsSend({type:'uploading',data:{filename,isUploading:true}});
   try{
     const data=await uploadFile(fileOrBlob,filename,pct=>{
       row._updateProgress?.(pct);
@@ -2217,10 +2268,13 @@ async function sendFile(fileOrBlob,filename,mime){
     row.remove();
     addFileMsg(data,myName,myId,true,msgId);
     sndSend();
+    wsSend({type:'uploading',data:{filename,isUploading:false}});
     wsSend({type:'file',data});
     hideReply(); // clear reply after sending
     $('msg-input').focus();
   }catch(err){
+    // Clear uploading indicator on peers
+    wsSend({type:'uploading',data:{filename,isUploading:false}});
     // Turn the pending row into a failed message card (sender-side only)
     if(row&&row.parentNode){
       const bubble=row.querySelector('.bubble')||row.querySelector('.file-bubble')||row;
@@ -2994,7 +3048,16 @@ function updateGridClass(){
 
 /* ═══ Message UI ═══ */
 function isAtBottom(){const m=$('messages');return m.scrollHeight-m.scrollTop-m.clientHeight<120;}
-function scrollBottom(){const m=$('messages');unreadCount=0;hideScrollBtn();m.scrollTop=m.scrollHeight;requestAnimationFrame(()=>{m.scrollTop=m.scrollHeight;});}
+function scrollBottom(){
+  const m=$('messages');unreadCount=0;hideScrollBtn();
+  m.scrollTop=m.scrollHeight;
+  // Delay re-scroll: seen-row avatars render after the initial scroll,
+  // which increases scrollHeight. Two rAF passes + 120ms cover both cases.
+  requestAnimationFrame(()=>{
+    m.scrollTop=m.scrollHeight;
+    setTimeout(()=>{m.scrollTop=m.scrollHeight;},120);
+  });
+}
 function showScrollBtn(n){
   const btn=$('scroll-btn');if(!btn)return;
   $('scroll-count').textContent=n+' new';btn.style.display='flex';
@@ -3064,7 +3127,7 @@ function makeQuoteBlock(reply){
 function addTextMsg(text,sender,senderId,isSelf,msgId,reply){
   const {row,wrap,rb}=makeRow(sender,senderId,isSelf);
   if(msgId){row.dataset.msgid=msgId;msgCache[msgId]={sender:isSelf?myName:sender,text};}
-  const bub=document.createElement('div');bub.className='bubble';
+  const bub=document.createElement('div');bub.className='bubble'+(isSingleEmoji(text)?' emoji-only':'');
   if(reply){const q=makeQuoteBlock(reply);if(q)bub.appendChild(q);}
   const inner=document.createElement('div');inner.className='bubble-inner';
   const txt=document.createElement('span');txt.className='bubble-text';setBubbleText(txt,text);
