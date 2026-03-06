@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,6 +138,13 @@ func (h *Hub) run() {
 					}
 					log.Printf("[evict] %s (%s) from IP %s replaced in room %s", ec.name, ec.id, ec.ip, c.room)
 				}
+			}
+
+			// Room capacity check (after eviction, so reconnects don't get rejected)
+			if len(h.rooms[c.room]) >= maxPeersPerRoom {
+				h.mu.Unlock()
+				h.rejectClient(c, "room-full", "Room is full (max 50 peers)")
+				continue
 			}
 
 			existing := h.peersInRoom(c.room)
@@ -352,12 +360,19 @@ func (h *Hub) run() {
 				})
 
 			case "admin-info":
-				// Client-originated broadcast (kept for backward compat)
-				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
-					Type: "admin-info",
-					From: env.sender.id,
-					Data: msg.Data,
-				})
+				// Only relay if the sender is actually the server-verified admin.
+				// This blocks any non-admin from forging fake admin-info broadcasts
+				// that would trick other clients into showing wrong admin badges.
+				h.mu.RLock()
+				senderIsAdmin := h.roomAdminID[env.sender.room] == env.sender.id
+				h.mu.RUnlock()
+				if senderIsAdmin {
+					h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
+						Type: "admin-info",
+						From: env.sender.id,
+						Data: msg.Data,
+					})
+				}
 
 			// ── Ban / Unban (admin only) ──────────────────────────────────────
 
@@ -372,6 +387,10 @@ func (h *Hub) run() {
 					PeerID string `json:"peerId"`
 				}
 				if json.Unmarshal(msg.Data, &bd) != nil || bd.PeerID == "" {
+					continue
+				}
+				// Admin cannot ban themselves
+				if bd.PeerID == env.sender.id {
 					continue
 				}
 				h.mu.Lock()
@@ -507,6 +526,28 @@ func (h *Hub) broadcastAdminInfo(room string) {
 	}
 }
 
+// realIP extracts the client IP from the request.
+// X-Real-Ip / X-Forwarded-For are trusted when present (reverse-proxy setup).
+// When X-Forwarded-For contains multiple comma-separated addresses (client,
+// proxy1, proxy2…) we take only the first (the originating client).
+func realIP(r *http.Request) string {
+	if v := r.Header.Get("X-Real-Ip"); v != "" {
+		return strings.TrimSpace(v)
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first address before any comma
+		if idx := strings.IndexByte(xff, ','); idx != -1 {
+			xff = xff[:idx]
+		}
+		return strings.TrimSpace(xff)
+	}
+	ip := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(ip); err == nil {
+		return h
+	}
+	return ip
+}
+
 func (c *Client) sendJSON(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -524,8 +565,11 @@ func (c *Client) sendJSON(v any) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 const (
-	pingInterval = 25 * time.Second
-	pongWait     = 10 * time.Second
+	pingInterval    = 25 * time.Second
+	pongWait        = 10 * time.Second
+	maxPeersPerRoom = 50  // DoS guard
+	maxNameLen      = 50  // max username length (runes)
+	maxRoomLen      = 64  // max room name length (runes)
 )
 
 var upgrader = websocket.Upgrader{
@@ -542,6 +586,13 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Anonymous"
 	}
+	// Enforce length limits to prevent log/memory abuse
+	if runes := []rune(room); len(runes) > maxRoomLen {
+		room = string(runes[:maxRoomLen])
+	}
+	if runes := []rune(name); len(runes) > maxNameLen {
+		name = string(runes[:maxNameLen])
+	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -549,16 +600,7 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := r.Header.Get("X-Real-Ip")
-	if ip == "" {
-		ip = r.Header.Get("X-Forwarded-For")
-	}
-	if ip == "" {
-		ip = r.RemoteAddr
-		if h, _, err := net.SplitHostPort(ip); err == nil {
-			ip = h
-		}
-	}
+	ip := realIP(r)
 
 	c := &Client{
 		hub:      hub,

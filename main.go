@@ -16,6 +16,23 @@ import (
 	"github.com/google/uuid"
 )
 
+// secureHeaders wraps a handler and adds defensive HTTP security headers.
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		// Tight CSP: same-origin scripts/styles only, no inline eval, no plugins.
+		// 'unsafe-inline' is needed for the large inline <script> block in index.html.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' wss: ws:; "+
+				"frame-ancestors 'none'; object-src 'none'; base-uri 'self';")
+		next.ServeHTTP(w, r)
+	})
+}
+
 //go:embed all:static
 var staticFiles embed.FS
 
@@ -45,7 +62,13 @@ func main() {
 
 	// ── File upload ──
 	http.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// No wildcard CORS — uploads must come from the same origin (the chat page).
+		// This prevents third-party sites from using the visitor's browser to
+		// upload arbitrary content to this server.
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(204)
+			return
+		}
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", 405)
 			return
@@ -91,19 +114,29 @@ func main() {
 			return
 		}
 		defer dst.Close()
+
+		// Read first 512 bytes to detect real MIME type from content,
+		// ignoring the client-supplied Content-Type which can be spoofed.
+		buf := make([]byte, 512)
+		n, _ := file.Read(buf)
+		detectedMime := http.DetectContentType(buf[:n])
+		// Write the sniffed bytes then the rest of the file
+		if _, err = dst.Write(buf[:n]); err != nil {
+			http.Error(w, "Write error", 500)
+			return
+		}
 		if _, err = io.Copy(dst, file); err != nil {
 			http.Error(w, "Write error", 500)
 			return
 		}
 
-		mime := header.Header.Get("Content-Type")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"url":  "/uploads/" + filename,
 			"name": header.Filename,
-			"mime": mime,
+			"mime": detectedMime,
 		})
-		log.Printf("[upload] %s (%s) → %s", header.Filename, mime, filename)
+		log.Printf("[upload] %s (%s) → %s", header.Filename, detectedMime, filename)
 	})
 
 	// ── Serve uploaded files from disk (also handle DELETE) ──
@@ -127,7 +160,10 @@ func main() {
 		if idx := strings.Index(storedName, "__"); idx != -1 {
 			displayName = storedName[idx+2:]
 		}
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, displayName))
+		// Escape any double-quotes in the filename to prevent header injection.
+		safeDisplay := strings.NewReplacer(`"`, `\"`, "\n", "", "\r", "").Replace(displayName)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, safeDisplay))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))).ServeHTTP(w, r)
 	})
 
@@ -139,6 +175,7 @@ func main() {
 	// ── Static files (embedded) ──
 	http.Handle("/", http.FileServer(http.FS(sub)))
 
+	// Wrap the default mux with security headers
 	log.Printf("P2P Chat server listening on :%s", listenPort)
-	log.Fatal(http.ListenAndServe(":"+listenPort, nil))
+	log.Fatal(http.ListenAndServe(":"+listenPort, secureHeaders(http.DefaultServeMux)))
 }

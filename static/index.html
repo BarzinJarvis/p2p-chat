@@ -1438,6 +1438,33 @@ function _hasMdMarkers(t){
   // NOTE: /m flag required so ^ matches start of each line, not just start of string
   return/\*\*|__|\*[^*]|_[^_]|`|\[.+\]\(.+\)|^#{1,6} |^[-*+] |^> |^```|~~|^\|.+\||^- \[[ x]\]|^[=-]{3,}/m.test(t||'');
 }
+/* DOM-based XSS sanitizer — applied to all markdown-rendered HTML.
+   Regex-based approaches are bypassable (unclosed <script src>, data: URIs,
+   SVG event handlers, etc.). Walking the DOM after parsing is robust. */
+function domSanitize(html){
+  const tmp=document.createElement('div');
+  tmp.innerHTML=html;
+  // Tags that can execute scripts or load external resources
+  const BLOCK=new Set(['script','iframe','object','embed','form','base','link','meta','style','noscript','template','svg','math']);
+  // Attributes that accept URLs — checked for unsafe protocols
+  const URL_ATTR=new Set(['href','src','action','formaction','xlink:href','data-href','poster','background']);
+  const UNSAFE=/^(javascript|data|vbscript)\s*:/i;
+  function walk(node){
+    if(node.nodeType===1){
+      if(BLOCK.has(node.tagName.toLowerCase())){node.remove();return;}
+      for(const attr of [...node.attributes]){
+        const n=attr.name.toLowerCase();
+        // Remove all event handlers
+        if(n.startsWith('on')){node.removeAttribute(attr.name);continue;}
+        // Remove dangerous URL protocols
+        if(URL_ATTR.has(n)&&UNSAFE.test(attr.value.trim())){node.removeAttribute(attr.name);}
+      }
+    }
+    for(const child of [...node.childNodes])walk(child);
+  }
+  for(const child of [...tmp.childNodes])walk(child);
+  return tmp.innerHTML;
+}
 function renderMessage(text){
   if(!text)return'';
   if(typeof marked==='undefined'||!_hasMdMarkers(text)){
@@ -1445,13 +1472,8 @@ function renderMessage(text){
     return esc2(text).replace(/\n/g,'<br>');
   }
   try{
-    var raw=marked.parse(text);
-    // XSS sanitize — build regex to avoid literal script tags in source
-    var sRe=new RegExp('<'+'script[\\s\\S]*?</'+'script>','gi');
-    raw=raw.replace(sRe,'');
-    raw=raw.replace(/on\w+\s*=/gi,'data-x=');
-    raw=raw.replace(/javascript:/gi,'nojs:');
-    return `<div class="md-body">${raw}</div>`;
+    const raw=marked.parse(text);
+    return `<div class="md-body">${domSanitize(raw)}</div>`;
   }catch(e){
     return esc2(text).replace(/\n/g,'<br>');
   }
