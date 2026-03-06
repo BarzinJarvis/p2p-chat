@@ -204,7 +204,7 @@ doneAdminDrain:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TestEviction: same IP connecting twice → first gets close code 4001 (evicted)
+// TestEviction: same IP + same name connecting twice → first gets evicted
 // ─────────────────────────────────────────────────────────────────────────────
 func TestEviction(t *testing.T) {
 	hub := newHub()
@@ -223,8 +223,8 @@ func TestEviction(t *testing.T) {
 	tab1, tab1ID := dialWSWithIP(t, srv.URL, "evictroom", "User", ip)
 	t.Logf("Tab1: id=%s", tab1ID)
 
-	// Connect tab2 (same IP) — should evict tab1
-	tab2, tab2ID := dialWSWithIP(t, srv.URL, "evictroom", "User2", ip)
+	// Connect tab2 (same IP + same name) — should evict tab1
+	tab2, tab2ID := dialWSWithIP(t, srv.URL, "evictroom", "User", ip)
 	t.Logf("Tab2: id=%s", tab2ID)
 
 	// Tab1 should get a TEXT "evicted" message, then be closed

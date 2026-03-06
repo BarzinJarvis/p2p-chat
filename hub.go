@@ -122,14 +122,15 @@ func (h *Hub) run() {
 				}
 			}
 
-			// Evict any existing connection from the SAME IP
-			// (handles reconnects, new tab, app restart from the same device)
+			// Evict existing connections from the SAME IP **and** NAME.
+			// This handles reconnects (page refresh, app restart) without
+			// preventing two different users behind the same NAT/device.
 			if h.rooms[c.room] == nil {
 				h.rooms[c.room] = make(map[string]*Client)
 			}
 			var evicted []*Client
 			for eid, ec := range h.rooms[c.room] {
-				if ec.ip == c.ip {
+				if ec.ip == c.ip && ec.name == c.name {
 					evicted = append(evicted, ec)
 					delete(h.rooms[c.room], eid)
 					// Transfer admin to new connection if needed
