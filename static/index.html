@@ -2152,6 +2152,8 @@ function addSeenAvatar(msgId,name,peerId){
   av.textContent=initials(name);
   av.style.background=pColor(peerId,name);
   sr.appendChild(av);
+  // Seen-row just grew — scroll to keep it visible if user was at bottom
+  if(_atBottom)scrollBottom();
 }
 
 $('file-input').onchange=async e=>{
@@ -3066,6 +3068,12 @@ function showScrollBtn(n){
 function hideScrollBtn(){const btn=$('scroll-btn');if(btn)btn.style.display='none';unreadCount=0;}
 $('scroll-btn').onclick=()=>{scrollBottom();};
 $('messages').addEventListener('scroll',()=>{_atBottom=isAtBottom();if(_atBottom){hideScrollBtn();}});
+// Mobile: when keyboard appears, viewport shrinks → scroll to bottom if was at bottom
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',()=>{if(_atBottom)scrollBottom();});
+}
+// Also catch the focus event on the input (tap → keyboard opens → scroll)
+$('msg-input').addEventListener('focus',()=>{if(_atBottom)setTimeout(scrollBottom,300);});
 function onNewMessage(isSelf){
   // Use _atBottom (captured by scroll listener before this message was appended)
   // isAtBottom() here would be wrong — scrollHeight already grew, so it would
@@ -3354,7 +3362,9 @@ function addFileMsg(d,sender,senderId,isSelf,overMsgId){
   const cat=mimeCategory(d.mime||'');
   if(cat==='image'){
     const imgWrap=document.createElement('div');imgWrap.className='img-wrap';
-    const img=document.createElement('img');img.src=d.url;img.alt=d.name||'image';img.loading='lazy';
+    const img=document.createElement('img');img.src=d.url;img.alt=d.name||'image';img.loading='eager';
+    // After the image loads its natural dimensions are known and scrollHeight grows — re-scroll
+    img.addEventListener('load',()=>{if(_atBottom)scrollBottom();});
     img.onclick=e=>{if(!selectMode)openLightbox(d.url,d.name);};
     imgWrap.appendChild(img);bub.appendChild(imgWrap);
   }else if(cat==='video'){
