@@ -1742,6 +1742,16 @@ function connectWS(room,name,pass){
   ws=new WebSocket(url);
   ws.onopen=()=>{/* wait for welcome or error */};
   ws.onclose=e=>{
+    // Code 4001 = evicted (another session from same IP took over).
+    // Do NOT auto-reconnect — just silently return to join screen so the
+    // two tabs don't ping-pong evicting each other forever.
+    if(e.code===4001){
+      cleanupAll();stopPingLoop();
+      $('join-screen').style.display='';
+      showJoinError('⚠️ Your session was replaced by a new connection from the same device.');
+      $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
+      return;
+    }
     if($('app').classList.contains('visible')&&!e.wasClean){
       setSub('Disconnected',false);
       showDiscOverlay();
@@ -1783,7 +1793,10 @@ async function onSig(msg){
       const wasInApp=$('app').classList.contains('visible');
       myId=msg.from;
       // Persist name locally so returning visitors auto-join (client-only, no server)
-      try{localStorage.setItem('p2pchat-name-'+myRoom,myName);}catch(_){}
+      try{
+        localStorage.setItem('p2pchat-name-'+myRoom,myName);
+        localStorage.setItem('p2pchat-last-name',myName); // global fallback for any room
+      }catch(_){}
       if(!wasInApp){
         enterApp();
         sysLine('You joined #'+myRoom);
@@ -4004,7 +4017,7 @@ window.onload=()=>{
     try{
       const params=new URLSearchParams(window.location.search);
       const room=(params.get('room')||'general').trim().replace(/\s+/g,'-');
-      const savedName=localStorage.getItem('p2pchat-name-'+room)||localStorage.getItem('p2pchat-name-general');
+      const savedName=localStorage.getItem('p2pchat-name-'+room)||localStorage.getItem('p2pchat-last-name');
       if(savedName&&$('join-screen').style.display!=='none'){
         $('name-input').value=savedName;
         if(params.get('room'))try{$('room-input').value=room;}catch(_){}

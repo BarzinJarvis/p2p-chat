@@ -157,9 +157,15 @@ func (h *Hub) run() {
 
 			h.mu.Unlock()
 
-			// Notify room about evictions and close old connections
+			// Notify room about evictions and close old connections.
+			// Use WS close code 4001 ("Evicted") so the client can tell this apart
+			// from a real network disconnect and NOT trigger auto-reconnect.
 			for _, old := range evicted {
 				h.broadcastToRoom(c.room, old.id, outMsg{Type: "peer-left", From: old.id})
+				closeMsg := websocket.FormatCloseMessage(4001, "evicted")
+				old.mu.Lock()
+				_ = old.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+				old.mu.Unlock()
 				old.conn.Close()
 			}
 
@@ -404,8 +410,13 @@ func (h *Hub) run() {
 				}
 				h.mu.Unlock()
 				if target != nil {
+					// Write the banned message SYNCHRONOUSLY before closing so the
+					// client always receives it (async sendJSON races with conn.Close).
 					banData, _ := json.Marshal(map[string]string{"reason": "Banned by admin"})
-					target.sendJSON(outMsg{Type: "banned", Data: json.RawMessage(banData)})
+					banBytes, _ := json.Marshal(outMsg{Type: "banned", Data: json.RawMessage(banData)})
+					target.mu.Lock()
+					_ = target.conn.WriteMessage(websocket.TextMessage, banBytes)
+					target.mu.Unlock()
 					target.conn.Close()
 					h.broadcastToRoom(env.sender.room, bd.PeerID, outMsg{Type: "peer-left", From: bd.PeerID})
 					log.Printf("[ban] %s ip=%s banned from room %s", target.name, target.ip, env.sender.room)
