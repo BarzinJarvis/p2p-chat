@@ -622,6 +622,12 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := realIP(r)
+	// In DEBUG mode only: allow ?testip= param to override client IP for browser testing.
+	if os.Getenv("DEBUG") == "1" {
+		if override := r.URL.Query().Get("testip"); override != "" {
+			ip = override
+		}
+	}
 
 	c := &Client{
 		hub:      hub,

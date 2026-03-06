@@ -3989,9 +3989,10 @@ function showUserPopup(id){
 function closeUserPopup(){$('user-popup').style.display='none';currentPopupPeerId=null;}
 function banCurrentPopupUser(){
   if(!currentPopupPeerId||!isAdmin)return;
-  const name=peers[currentPopupPeerId]?.name||'user';
+  const pid=currentPopupPeerId; // capture before closeUserPopup nulls it
+  const name=peers[pid]?.name||'user';
   closeUserPopup();
-  wsSend({type:'ban',data:{peerId:currentPopupPeerId}});
+  wsSend({type:'ban',data:{peerId:pid}});
   toast('🚫 '+name+' banned from room','warn',null);
 }
 function unbanIP(ip){
