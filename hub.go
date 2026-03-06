@@ -158,15 +158,20 @@ func (h *Hub) run() {
 			h.mu.Unlock()
 
 			// Notify room about evictions and close old connections.
-			// Use WS close code 4001 ("Evicted") so the client can tell this apart
-			// from a real network disconnect and NOT trigger auto-reconnect.
+			// Send a TEXT "evicted" message first so the client can show a
+			// meaningful UI instead of the generic reconnect overlay.
+			// Delay conn.Close() in a goroutine so the TCP send buffer has time
+			// to flush the text frame before the connection is torn down.
 			for _, old := range evicted {
 				h.broadcastToRoom(c.room, old.id, outMsg{Type: "peer-left", From: old.id})
-				closeMsg := websocket.FormatCloseMessage(4001, "evicted")
+				evictBytes, _ := json.Marshal(outMsg{Type: "evicted"})
 				old.mu.Lock()
-				_ = old.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+				_ = old.conn.WriteMessage(websocket.TextMessage, evictBytes)
 				old.mu.Unlock()
-				old.conn.Close()
+				go func(c2 *Client) {
+					time.Sleep(200 * time.Millisecond)
+					c2.conn.Close()
+				}(old)
 			}
 
 			c.sendJSON(outMsg{Type: "welcome", From: c.id, Peers: existing})
@@ -410,18 +415,19 @@ func (h *Hub) run() {
 				}
 				h.mu.Unlock()
 				if target != nil {
-					// Dual-signal the ban so the client always knows:
-					//   1. TEXT "banned" message  → handled by onmessage
-					//   2. WS CLOSE frame 4002    → handled by onclose (fallback if text missed)
-					// Both are written synchronously (under the conn mutex) before closing.
+					// Write the "banned" TEXT message synchronously then delay-close
+					// in a goroutine. This ensures the TCP send buffer has time to
+					// flush the frame before the connection is torn down, which is
+					// more reliable than WS close codes (which can be dropped by RST).
 					banData, _ := json.Marshal(map[string]string{"reason": "Banned by admin"})
 					banBytes, _ := json.Marshal(outMsg{Type: "banned", Data: json.RawMessage(banData)})
-					closeMsg := websocket.FormatCloseMessage(4002, "banned")
 					target.mu.Lock()
 					_ = target.conn.WriteMessage(websocket.TextMessage, banBytes)
-					_ = target.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
 					target.mu.Unlock()
-					target.conn.Close()
+					go func() {
+						time.Sleep(200 * time.Millisecond)
+						target.conn.Close()
+					}()
 					h.broadcastToRoom(env.sender.room, bd.PeerID, outMsg{Type: "peer-left", From: bd.PeerID})
 					log.Printf("[ban] %s ip=%s banned from room %s", target.name, target.ip, env.sender.room)
 				}

@@ -168,6 +168,11 @@ func main() {
 	})
 
 	// ── WebSocket ──
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Cache-Control", "no-cache")
+		fmt.Fprint(w, "p2p-chat v3.38 OK")
+	})
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWs(hub, w, r)
 	})

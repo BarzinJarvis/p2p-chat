@@ -1039,7 +1039,7 @@ body.selecting .msg-row:not(.selected){opacity:1;}
     <div class="field"><label>Your Name</label>
       <input id="name-input" placeholder="Alice" autocomplete="off"/></div>
     <button class="btn-primary" id="join-btn">Join Room →</button>
-    <div class="join-footer">Messages stay in your browser · Files auto-delete when room empties</div>
+    <div class="join-footer">Messages stay in your browser · Files auto-delete when room empties<br><span style="opacity:.5">v3.38</span></div>
   </div>
 </div>
 
@@ -1632,7 +1632,7 @@ let editingMsgId=null;
 let unreadCount=0;
 let _atBottom=true; // tracks scroll position BEFORE new messages land
 let isAdmin=false;
-let _wasBanned=false; // set when we receive a 'banned' msg; suppresses reconnect in onclose
+let _intentionalClose=false; // set before ws.close() to suppress reconnect overlay in onclose
 let adminPeerId=null;
 let currentPopupPeerId=null;
 function enq(fn){sigQ=sigQ.then(fn).catch(console.warn);}
@@ -1743,32 +1743,8 @@ function connectWS(room,name,pass){
   ws=new WebSocket(url);
   ws.onopen=()=>{/* wait for welcome or error */};
   ws.onclose=e=>{
-    // Code 4001 = evicted (another session from same IP took over).
-    // Do NOT auto-reconnect — silently return to join screen.
-    if(e.code===4001){
-      cleanupAll();stopPingLoop();
-      $('app').classList.remove('visible');
-      $('join-screen').style.display='';
-      showJoinError('⚠️ Your session was replaced by a new connection from the same device.');
-      $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
-      return;
-    }
-    // Code 4002 = banned by admin (fallback if the TEXT banned message was missed).
-    if(e.code===4002){
-      if(!_wasBanned){ // only run if onmessage 'banned' case didn't already show the UI
-        cleanupAll();stopPingLoop();
-        $('app').classList.remove('visible');
-        $('join-screen').style.display='';
-        $('join-error').textContent='🚫 You have been banned from this room by the admin.';
-        $('join-error').classList.add('show');
-        $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
-      }
-      _wasBanned=false;
-      return;
-    }
-    // For any other close: if we already handled a ban/evict via onmessage,
-    // suppress the reconnect overlay.
-    if(_wasBanned){_wasBanned=false;return;}
+    // If we intentionally closed (ban/evict handled in onmessage), skip reconnect.
+    if(_intentionalClose){_intentionalClose=false;return;}
     if($('app').classList.contains('visible')&&!e.wasClean){
       setSub('Disconnected',false);
       showDiscOverlay();
@@ -1809,10 +1785,12 @@ async function onSig(msg){
     case 'welcome':{
       const wasInApp=$('app').classList.contains('visible');
       myId=msg.from;
-      // Persist name locally so returning visitors auto-join (client-only, no server)
+      // Persist name+pass locally so returning visitors auto-join (client-only, no server)
       try{
         localStorage.setItem('p2pchat-name-'+myRoom,myName);
         localStorage.setItem('p2pchat-last-name',myName); // global fallback for any room
+        localStorage.setItem('p2pchat-pass-'+myRoom,myPass);
+        localStorage.setItem('p2pchat-last-pass',myPass); // global fallback for any room
       }catch(_){}
       if(!wasInApp){
         enterApp();
@@ -1984,15 +1962,23 @@ async function onSig(msg){
       break;
     }
     case 'banned':{
-      // Mark banned so onclose doesn't trigger the reconnect overlay.
-      // Do NOT call ws.close() here — server sends WS close frame 4002 which
-      // fires onclose and handles the connection teardown cleanly.
-      _wasBanned=true;
+      _intentionalClose=true;
+      const _bws=ws;ws=null;_bws&&_bws.close();
       cleanupAll();stopPingLoop();
-      $('join-screen').style.display='';
       $('app').classList.remove('visible');
+      $('join-screen').style.display='';
       $('join-error').textContent='🚫 You have been banned from this room by the admin.';
       $('join-error').classList.add('show');
+      $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
+      break;
+    }
+    case 'evicted':{
+      _intentionalClose=true;
+      const _ews=ws;ws=null;_ews&&_ews.close();
+      cleanupAll();stopPingLoop();
+      $('app').classList.remove('visible');
+      $('join-screen').style.display='';
+      showJoinError('⚠️ Your session was replaced by a new connection from the same device.');
       $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
       break;
     }
@@ -4034,16 +4020,20 @@ document.addEventListener('click',function(e){
 
 window.onload=()=>{
   $('name-input').focus();
-  // ── Auto-login: restore last-used name from localStorage (client-only, no server) ──
+  // ── Auto-login: restore last-used name+pass from localStorage ──────────────
+  // Reads room-specific keys first, falls back to global last-used.
+  // Only auto-joins when BOTH name AND pass are saved (doJoin requires a pass).
   (()=>{
     try{
       const params=new URLSearchParams(window.location.search);
       const room=(params.get('room')||'general').trim().replace(/\s+/g,'-');
       const savedName=localStorage.getItem('p2pchat-name-'+room)||localStorage.getItem('p2pchat-last-name');
-      if(savedName&&$('join-screen').style.display!=='none'){
+      const savedPass=localStorage.getItem('p2pchat-pass-'+room)||localStorage.getItem('p2pchat-last-pass');
+      if(savedName&&savedPass&&$('join-screen').style.display!=='none'){
         $('name-input').value=savedName;
+        $('pass-input').value=savedPass;
         if(params.get('room'))try{$('room-input').value=room;}catch(_){}
-        setTimeout(()=>{if($('join-screen').style.display!=='none')$('join-btn').click();},400);
+        setTimeout(()=>{if($('join-screen').style.display!=='none')$('join-btn').click();},500);
       }
     }catch(_){}
   })();

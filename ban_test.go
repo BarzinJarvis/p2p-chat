@@ -227,28 +227,30 @@ func TestEviction(t *testing.T) {
 	tab2, tab2ID := dialWSWithIP(t, srv.URL, "evictroom", "User2", ip)
 	t.Logf("Tab2: id=%s", tab2ID)
 
-	// Tab1 should get close code 4001
+	// Tab1 should get a TEXT "evicted" message, then be closed
 	deadline := time.Now().Add(3 * time.Second)
-	gotCode4001 := false
+	gotEvicted := false
 	for time.Now().Before(deadline) {
 		tab1.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		_, _, err := tab1.ReadMessage()
+		_, raw, err := tab1.ReadMessage()
 		tab1.SetReadDeadline(time.Time{})
-		if websocket.IsCloseError(err, 4001) {
-			gotCode4001 = true
-			break
-		}
 		if err != nil {
-			// Non-4001 error or timeout — log for debugging
-			t.Logf("tab1 read: %v", err)
+			t.Logf("tab1 closed (err=%v) after eviction", err)
 			break
 		}
+		var m testMsg
+		json.Unmarshal(raw, &m)
+		if m.Type == "evicted" {
+			gotEvicted = true
+			break
+		}
+		t.Logf("(tab1 drained: type=%s)", m.Type)
 	}
 
-	if gotCode4001 {
-		t.Log("✅ PASS: Tab1 got close code 4001 (evicted correctly)")
+	if gotEvicted {
+		t.Log("✅ PASS: Tab1 received 'evicted' TEXT message")
 	} else {
-		t.Error("❌ FAIL: Tab1 did not get close code 4001")
+		t.Error("❌ FAIL: Tab1 did not receive 'evicted' message")
 	}
 
 	// Tab2 should still be alive
