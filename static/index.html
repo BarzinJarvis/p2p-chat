@@ -4003,7 +4003,7 @@ function updateBanListUI(list){
   const c=$('ban-list-container');if(!c)return;
   if(!list||!list.length){c.innerHTML='<div class="ban-list-empty">No banned users</div>';return;}
   c.innerHTML='<div class="ban-list-wrap">'+list.map(item=>
-    `<div class="ban-list-item"><div class="ban-item-info"><div class="ban-item-name">${esc(item.name)}</div><div class="ban-item-ip">${esc(item.ip)}</div></div><button class="unban-btn" onclick="unbanIP(${JSON.stringify(item.ip)})">Unban</button></div>`
+    `<div class="ban-list-item"><div class="ban-item-info"><div class="ban-item-name">${esc(item.name)}</div><div class="ban-item-ip">${esc(item.ip)}</div></div><button class="unban-btn" data-ip="${esc(item.ip)}" onclick="unbanIP(this.dataset.ip)">Unban</button></div>`
   ).join('')+'</div>';
 }
 
