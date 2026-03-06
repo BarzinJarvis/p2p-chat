@@ -46,7 +46,6 @@ type Hub struct {
 	rooms         map[string]map[string]*Client // room → peerId → Client
 	roomFiles     map[string][]string           // room → []local file paths
 	roomPasswords map[string]string             // room → password ("" = open)
-	roomIPNames   map[string]map[string]string  // room → IP → last used name
 	roomBans      map[string]map[string]string  // room → IP → banned username
 	roomAdminID   map[string]string             // room → admin peer ID
 	register      chan *Client
@@ -84,7 +83,6 @@ func newHub() *Hub {
 		rooms:         make(map[string]map[string]*Client),
 		roomFiles:     make(map[string][]string),
 		roomPasswords: make(map[string]string),
-		roomIPNames:   make(map[string]map[string]string),
 		roomBans:      make(map[string]map[string]string),
 		roomAdminID:   make(map[string]string),
 		register:      make(chan *Client, 64),
@@ -141,12 +139,6 @@ func (h *Hub) run() {
 				}
 			}
 
-			// Remember this IP's chosen name for auto-login hints
-			if h.roomIPNames[c.room] == nil {
-				h.roomIPNames[c.room] = make(map[string]string)
-			}
-			h.roomIPNames[c.room][c.ip] = c.name
-
 			existing := h.peersInRoom(c.room)
 			h.rooms[c.room][c.id] = c
 
@@ -184,7 +176,6 @@ func (h *Hub) run() {
 					// Room empty — destroy everything including bans and IP names
 					delete(h.rooms, c.room)
 					delete(h.roomPasswords, c.room)
-					delete(h.roomIPNames, c.room)
 					delete(h.roomBans, c.room)
 					delete(h.roomAdminID, c.room)
 					toDelete = h.roomFiles[c.room]
@@ -418,10 +409,6 @@ func (h *Hub) run() {
 				h.mu.Lock()
 				if h.roomBans[env.sender.room] != nil {
 					delete(h.roomBans[env.sender.room], ud.IP)
-				}
-				// Also remove from IP→name cache so they can rejoin with fresh name
-				if h.roomIPNames[env.sender.room] != nil {
-					delete(h.roomIPNames[env.sender.room], ud.IP)
 				}
 				h.mu.Unlock()
 				h.sendBanList(env.sender)

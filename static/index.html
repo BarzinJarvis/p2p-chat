@@ -1760,6 +1760,8 @@ async function onSig(msg){
     case 'welcome':{
       const wasInApp=$('app').classList.contains('visible');
       myId=msg.from;
+      // Persist name locally so returning visitors auto-join (client-only, no server)
+      try{localStorage.setItem('p2pchat-name-'+myRoom,myName);}catch(_){}
       if(!wasInApp){
         enterApp();
         sysLine('You joined #'+myRoom);
@@ -3975,18 +3977,16 @@ document.addEventListener('click',function(e){
 
 window.onload=()=>{
   $('name-input').focus();
-  // ── IP-based auto-login: pre-fill name from server if returning user ──
-  (async()=>{
+  // ── Auto-login: restore last-used name from localStorage (client-only, no server) ──
+  (()=>{
     try{
       const params=new URLSearchParams(window.location.search);
-      const room=params.get('room')||'general';
-      const r=await fetch('/name-hint?room='+encodeURIComponent(room));
-      if(!r.ok)return;
-      const d=await r.json();
-      if(d&&d.name&&$('join-screen').style.display!=='none'){
-        $('name-input').value=d.name;
-        if(params.get('room'))try{$('room-input').value=params.get('room');}catch(_){}
-        setTimeout(()=>{if($('join-screen').style.display!=='none')$('join-btn').click();},500);
+      const room=(params.get('room')||'general').trim().replace(/\s+/g,'-');
+      const savedName=localStorage.getItem('p2pchat-name-'+room)||localStorage.getItem('p2pchat-name-general');
+      if(savedName&&$('join-screen').style.display!=='none'){
+        $('name-input').value=savedName;
+        if(params.get('room'))try{$('room-input').value=room;}catch(_){}
+        setTimeout(()=>{if($('join-screen').style.display!=='none')$('join-btn').click();},400);
       }
     }catch(_){}
   })();
