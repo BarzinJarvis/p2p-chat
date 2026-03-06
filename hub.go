@@ -24,6 +24,11 @@ type PeerInfo struct {
 	IP   string `json:"ip,omitempty"`
 }
 
+type BanEntry struct {
+	IP   string `json:"ip"`
+	Name string `json:"name"`
+}
+
 type Client struct {
 	hub      *Hub
 	conn     *websocket.Conn
@@ -41,6 +46,9 @@ type Hub struct {
 	rooms         map[string]map[string]*Client // room → peerId → Client
 	roomFiles     map[string][]string           // room → []local file paths
 	roomPasswords map[string]string             // room → password ("" = open)
+	roomIPNames   map[string]map[string]string  // room → IP → last used name
+	roomBans      map[string]map[string]string  // room → IP → banned username
+	roomAdminID   map[string]string             // room → admin peer ID
 	register      chan *Client
 	unregister    chan *Client
 	signal        chan envelope
@@ -76,6 +84,9 @@ func newHub() *Hub {
 		rooms:         make(map[string]map[string]*Client),
 		roomFiles:     make(map[string][]string),
 		roomPasswords: make(map[string]string),
+		roomIPNames:   make(map[string]map[string]string),
+		roomBans:      make(map[string]map[string]string),
+		roomAdminID:   make(map[string]string),
 		register:      make(chan *Client, 64),
 		unregister:    make(chan *Client, 64),
 		signal:        make(chan envelope, 512),
@@ -97,6 +108,14 @@ func (h *Hub) run() {
 					h.rejectClient(c, "wrong-password", "Wrong room password")
 					continue
 				}
+				// Check IP ban
+				if bans := h.roomBans[c.room]; bans != nil {
+					if _, banned := bans[c.ip]; banned {
+						h.mu.Unlock()
+						h.rejectClient(c, "banned", "You have been banned from this room")
+						continue
+					}
+				}
 			} else {
 				// New room — set password if provided
 				if c.password != "" {
@@ -104,27 +123,44 @@ func (h *Hub) run() {
 				}
 			}
 
-			// Admit — but first evict any existing client with the same name
-			// (handles Android/browser reconnect: old WS lingers while new one joins)
+			// Evict any existing connection from the SAME IP
+			// (handles reconnects, new tab, app restart from the same device)
 			if h.rooms[c.room] == nil {
 				h.rooms[c.room] = make(map[string]*Client)
 			}
 			var evicted []*Client
 			for eid, ec := range h.rooms[c.room] {
-				if ec.name == c.name {
+				if ec.ip == c.ip {
 					evicted = append(evicted, ec)
 					delete(h.rooms[c.room], eid)
-					log.Printf("[evict] %s (%s) replaced by reconnect in room %s", ec.name, ec.id, c.room)
+					// Transfer admin to new connection if needed
+					if h.roomAdminID[c.room] == ec.id {
+						h.roomAdminID[c.room] = c.id
+					}
+					log.Printf("[evict] %s (%s) from IP %s replaced in room %s", ec.name, ec.id, ec.ip, c.room)
 				}
 			}
+
+			// Remember this IP's chosen name for auto-login hints
+			if h.roomIPNames[c.room] == nil {
+				h.roomIPNames[c.room] = make(map[string]string)
+			}
+			h.roomIPNames[c.room][c.ip] = c.name
+
 			existing := h.peersInRoom(c.room)
 			h.rooms[c.room][c.id] = c
+
+			// First client in room becomes admin
+			if len(existing) == 0 {
+				h.roomAdminID[c.room] = c.id
+			}
+
 			h.mu.Unlock()
 
 			// Notify room about evictions and close old connections
 			for _, old := range evicted {
 				h.broadcastToRoom(c.room, old.id, outMsg{Type: "peer-left", From: old.id})
-				old.conn.Close() // readPump error → unregister fires but wasInRoom=false, no double broadcast
+				old.conn.Close()
 			}
 
 			c.sendJSON(outMsg{Type: "welcome", From: c.id, Peers: existing})
@@ -132,7 +168,9 @@ func (h *Hub) run() {
 				Type: "peer-joined",
 				Peer: &PeerInfo{ID: c.id, Name: c.name, IP: c.ip},
 			})
-			log.Printf("[join] %s (%s) → room %s  (%d peers)", c.name, c.id, c.room, len(existing)+1)
+			// Broadcast current admin to the whole room (incl. new joiner)
+			h.broadcastAdminInfo(c.room)
+			log.Printf("[join] %s (%s) ip=%s → room %s  (%d peers)", c.name, c.id, c.ip, c.room, len(existing)+1)
 
 		case c := <-h.unregister:
 			var toDelete []string
@@ -143,24 +181,31 @@ func (h *Hub) run() {
 				wasInRoom = true
 				delete(h.rooms[c.room], c.id)
 				if len(h.rooms[c.room]) == 0 {
-					// Room is now empty — destroy everything
+					// Room empty — destroy everything including bans and IP names
 					delete(h.rooms, c.room)
-					delete(h.roomPasswords, c.room) // destroy password
+					delete(h.roomPasswords, c.room)
+					delete(h.roomIPNames, c.room)
+					delete(h.roomBans, c.room)
+					delete(h.roomAdminID, c.room)
 					toDelete = h.roomFiles[c.room]
 					delete(h.roomFiles, c.room)
+				} else if h.roomAdminID[c.room] == c.id {
+					// Admin left — promote the first remaining peer
+					for _, remaining := range h.rooms[c.room] {
+						h.roomAdminID[c.room] = remaining.id
+						break
+					}
 				}
 			}
 			h.mu.Unlock()
 			c.conn.Close()
 
-			// Only broadcast peer-left if the client was still registered
-			// (prevents duplicate broadcasts when evicted via same-name reconnect)
 			if wasInRoom {
 				h.broadcastToRoom(c.room, c.id, outMsg{Type: "peer-left", From: c.id})
+				h.broadcastAdminInfo(c.room) // notify room if admin changed
 				log.Printf("[left] %s (%s) ← room %s", c.name, c.id, c.room)
 			}
 
-			// Delete uploaded files in background
 			if len(toDelete) > 0 {
 				go func(files []string) {
 					for _, f := range files {
@@ -226,8 +271,6 @@ func (h *Hub) run() {
 				})
 
 			case "uploading":
-				// Broadcast file-upload progress notification to all peers in room.
-				// Sender sets isUploading:true on start, false on finish/fail.
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "uploading",
 					From: env.sender.id,
@@ -282,7 +325,6 @@ func (h *Hub) run() {
 				}
 
 			case "user-status":
-				// Broadcast away/online status to all peers
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "user-status",
 					From: env.sender.id,
@@ -290,7 +332,6 @@ func (h *Hub) run() {
 				})
 
 			case "msg-read":
-				// Broadcast read receipt to everyone else in room (incl. original sender)
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "msg-read",
 					From: env.sender.id,
@@ -320,38 +361,103 @@ func (h *Hub) run() {
 				})
 
 			case "admin-info":
+				// Client-originated broadcast (kept for backward compat)
 				h.broadcastToRoom(env.sender.room, env.sender.id, outMsg{
 					Type: "admin-info",
 					From: env.sender.id,
 					Data: msg.Data,
 				})
+
+			// ── Ban / Unban (admin only) ──────────────────────────────────────
+
+			case "ban":
+				h.mu.RLock()
+				isAdm := h.roomAdminID[env.sender.room] == env.sender.id
+				h.mu.RUnlock()
+				if !isAdm {
+					continue
+				}
+				var bd struct {
+					PeerID string `json:"peerId"`
+				}
+				if json.Unmarshal(msg.Data, &bd) != nil || bd.PeerID == "" {
+					continue
+				}
+				h.mu.Lock()
+				target := h.rooms[env.sender.room][bd.PeerID]
+				if target != nil {
+					if h.roomBans[env.sender.room] == nil {
+						h.roomBans[env.sender.room] = make(map[string]string)
+					}
+					h.roomBans[env.sender.room][target.ip] = target.name
+					delete(h.rooms[env.sender.room], bd.PeerID)
+				}
+				h.mu.Unlock()
+				if target != nil {
+					banData, _ := json.Marshal(map[string]string{"reason": "Banned by admin"})
+					target.sendJSON(outMsg{Type: "banned", Data: json.RawMessage(banData)})
+					target.conn.Close()
+					h.broadcastToRoom(env.sender.room, bd.PeerID, outMsg{Type: "peer-left", From: bd.PeerID})
+					log.Printf("[ban] %s ip=%s banned from room %s", target.name, target.ip, env.sender.room)
+				}
+				h.sendBanList(env.sender)
+
+			case "unban":
+				h.mu.RLock()
+				isAdm := h.roomAdminID[env.sender.room] == env.sender.id
+				h.mu.RUnlock()
+				if !isAdm {
+					continue
+				}
+				var ud struct {
+					IP string `json:"ip"`
+				}
+				if json.Unmarshal(msg.Data, &ud) != nil || ud.IP == "" {
+					continue
+				}
+				h.mu.Lock()
+				if h.roomBans[env.sender.room] != nil {
+					delete(h.roomBans[env.sender.room], ud.IP)
+				}
+				// Also remove from IP→name cache so they can rejoin with fresh name
+				if h.roomIPNames[env.sender.room] != nil {
+					delete(h.roomIPNames[env.sender.room], ud.IP)
+				}
+				h.mu.Unlock()
+				h.sendBanList(env.sender)
+				log.Printf("[unban] ip=%s unbanned from room %s", ud.IP, env.sender.room)
+
+			case "get-ban-list":
+				h.mu.RLock()
+				isAdm := h.roomAdminID[env.sender.room] == env.sender.id
+				h.mu.RUnlock()
+				if isAdm {
+					h.sendBanList(env.sender)
+				}
 			}
 		}
 	}
 }
 
-// rejectClient sends an error then gracefully tears down the client.
+// ──────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
 func (h *Hub) rejectClient(c *Client, code, message string) {
 	data, _ := json.Marshal(map[string]string{"code": code, "message": message})
 	errMsg, _ := json.Marshal(outMsg{Type: "error", Data: json.RawMessage(data)})
 
-	// Write directly to conn (writePump is blocked on empty send channel)
 	c.mu.Lock()
 	_ = c.conn.WriteMessage(websocket.TextMessage, errMsg)
 	c.mu.Unlock()
 
-	// After a brief flush window, close send channel and connection
 	go func() {
 		time.Sleep(300 * time.Millisecond)
-		defer func() { recover() }() // guard against double-close
-		close(c.send)                // exits writePump's range loop
+		defer func() { recover() }()
+		close(c.send)
 	}()
 	log.Printf("[reject] %s → room %s (%s)", c.name, c.room, code)
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────────
 
 func (h *Hub) peersInRoom(room string) []PeerInfo {
 	var peers []PeerInfo
@@ -370,7 +476,7 @@ func (h *Hub) broadcastToRoom(room, excludeID string, msg outMsg) {
 			continue
 		}
 		func() {
-			defer func() { recover() }() // guard send on closed channel
+			defer func() { recover() }()
 			select {
 			case c.send <- b:
 			default:
@@ -379,12 +485,47 @@ func (h *Hub) broadcastToRoom(room, excludeID string, msg outMsg) {
 	}
 }
 
+// sendBanList sends the current ban list to the requesting admin client.
+func (h *Hub) sendBanList(admin *Client) {
+	h.mu.RLock()
+	bans := h.roomBans[admin.room]
+	var list []BanEntry
+	for ip, name := range bans {
+		list = append(list, BanEntry{IP: ip, Name: name})
+	}
+	h.mu.RUnlock()
+	if list == nil {
+		list = []BanEntry{}
+	}
+	data, _ := json.Marshal(list)
+	admin.sendJSON(outMsg{Type: "ban-list", Data: json.RawMessage(data)})
+}
+
+// broadcastAdminInfo sends the current admin ID to all clients in the room.
+func (h *Hub) broadcastAdminInfo(room string) {
+	h.mu.RLock()
+	adminId := h.roomAdminID[room]
+	var clients []*Client
+	for _, c := range h.rooms[room] {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+	if adminId == "" || len(clients) == 0 {
+		return
+	}
+	data, _ := json.Marshal(map[string]string{"adminId": adminId})
+	msg := outMsg{Type: "admin-info", Data: json.RawMessage(data)}
+	for _, c := range clients {
+		c.sendJSON(msg)
+	}
+}
+
 func (c *Client) sendJSON(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return
 	}
-	defer func() { recover() }() // guard send on closed channel
+	defer func() { recover() }()
 	select {
 	case c.send <- b:
 	default:
@@ -396,12 +537,8 @@ func (c *Client) sendJSON(v any) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 const (
-	// How often the server pings each client.
 	pingInterval = 25 * time.Second
-	// How long the server waits for a pong before killing the connection.
-	// Ghost clients (abruptly dropped connections) are detected within
-	// pingInterval + pongWait = ~35 seconds.
-	pongWait = 10 * time.Second
+	pongWait     = 10 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -425,7 +562,6 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get real IP from headers or RemoteAddr
 	ip := r.Header.Get("X-Real-Ip")
 	if ip == "" {
 		ip = r.Header.Get("X-Forwarded-For")
@@ -455,10 +591,6 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 func (c *Client) readPump() {
 	defer func() { c.hub.unregister <- c }()
 	c.conn.SetReadLimit(128 * 1024)
-
-	// Set initial read deadline; reset on every pong received.
-	// If no pong arrives within pongWait after a ping, ReadMessage returns an
-	// error and the ghost client is immediately unregistered.
 	c.conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
@@ -482,7 +614,6 @@ func (c *Client) writePump() {
 		select {
 		case msg, ok := <-c.send:
 			if !ok {
-				// send channel was closed — write a close frame and exit
 				c.mu.Lock()
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				c.mu.Unlock()
@@ -496,8 +627,6 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			// Send a ping frame; if the client is gone it won't pong back and
-			// readPump's deadline will fire, unregistering the ghost.
 			c.mu.Lock()
 			err := c.conn.WriteMessage(websocket.PingMessage, nil)
 			c.mu.Unlock()

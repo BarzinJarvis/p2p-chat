@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -129,6 +130,33 @@ func main() {
 		}
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, displayName))
 		http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))).ServeHTTP(w, r)
+	})
+
+	// ── IP-based name hint (for auto-login) ──
+	http.HandleFunc("/name-hint", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		room := r.URL.Query().Get("room")
+		if room == "" {
+			room = "general"
+		}
+		ip := r.Header.Get("X-Real-Ip")
+		if ip == "" {
+			ip = r.Header.Get("X-Forwarded-For")
+		}
+		if ip == "" {
+			ip = r.RemoteAddr
+			if h, _, err := net.SplitHostPort(ip); err == nil {
+				ip = h
+			}
+		}
+		hub.mu.RLock()
+		name := ""
+		if hub.roomIPNames[room] != nil {
+			name = hub.roomIPNames[room][ip]
+		}
+		hub.mu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]string{"name": name})
 	})
 
 	// ── WebSocket ──

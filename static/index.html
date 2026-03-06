@@ -995,6 +995,16 @@ body.selecting .msg-row:not(.selected){opacity:1;}
 .settings-reset{background:none;border:1px solid var(--border);border-radius:10px;
   padding:9px 16px;color:var(--muted-fg);cursor:pointer;font-size:.82rem;transition:all .15s;}
 .settings-reset:hover{background:var(--card2);color:var(--fg);}
+.ban-btn{width:100%;margin-top:14px;padding:10px 0;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#ef4444;border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:background .15s;}
+.ban-btn:hover{background:rgba(239,68,68,.22);}
+.ban-list-wrap{display:flex;flex-direction:column;gap:6px;}
+.ban-list-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--card2);border-radius:10px;}
+.ban-item-info{display:flex;flex-direction:column;gap:1px;min-width:0;}
+.ban-item-name{font-size:.85rem;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ban-item-ip{font-size:.72rem;color:var(--muted-fg);font-family:monospace;}
+.unban-btn{flex-shrink:0;padding:5px 10px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#22c55e;border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer;}
+.unban-btn:hover{background:rgba(34,197,94,.22);}
+.ban-list-empty{color:var(--muted-fg);font-size:.84rem;text-align:center;padding:10px 0;}
 
 </style>
 </head>
@@ -1234,6 +1244,7 @@ body.selecting .msg-row:not(.selected){opacity:1;}
       <div class="upr"><span class="upr-label">Device</span><span class="upr-val" id="up-agent"></span></div>
       <div class="upr"><span class="upr-label">IP</span><span class="upr-val" id="up-ip"></span></div>
     </div>
+    <button class="ban-btn" id="up-ban-btn" style="display:none" onclick="banCurrentPopupUser()">🚫 Ban from Room</button>
   </div>
 </div>
 
@@ -1307,6 +1318,10 @@ body.selecting .msg-row:not(.selected){opacity:1;}
     <div class="settings-section">
       <div class="settings-label">Color Theme</div>
       <div class="theme-grid" id="theme-grid"></div>
+    </div>
+    <div class="settings-section" id="admin-ban-section" style="display:none">
+      <div class="settings-label">⛔ Ban List</div>
+      <div id="ban-list-container"><div class="ban-list-empty">No banned users</div></div>
     </div>
     <div class="settings-footer">
       <button class="settings-reset" onclick="resetSettings()">Reset to Default</button>
@@ -1596,6 +1611,7 @@ let unreadCount=0;
 let _atBottom=true; // tracks scroll position BEFORE new messages land
 let isAdmin=false;
 let adminPeerId=null;
+let currentPopupPeerId=null;
 function enq(fn){sigQ=sigQ.then(fn).catch(console.warn);}
 
 
@@ -1893,6 +1909,12 @@ async function onSig(msg){
     }
     case 'admin-info':{
       adminPeerId=msg.data?.adminId;
+      // If server is telling US we're admin (e.g. after promotion or reconnect)
+      if(adminPeerId===myId&&!isAdmin){
+        isAdmin=true;
+        $('admin-ban-section').style.display='';
+        wsSend({type:'get-ban-list'});
+      }
       // Refresh admin badge in user list
       document.querySelectorAll('#user-list .uitem').forEach(item=>{
         const pid=item.id.replace('u-','');
@@ -1905,6 +1927,18 @@ async function onSig(msg){
             if(agentIcon)uname.insertBefore(badge,agentIcon);else uname.appendChild(badge);}
         }else{if(badge)badge.remove();}
       });
+      break;
+    }
+    case 'banned':{
+      ws&&ws.close();cleanupAll();stopPingLoop();
+      $('join-screen').style.display='';
+      $('join-error').textContent='🚫 You have been banned from this room by the admin.';
+      $('join-error').classList.add('show');
+      $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
+      break;
+    }
+    case 'ban-list':{
+      updateBanListUI(Array.isArray(msg.data)?msg.data:[]);
       break;
     }
     case 'file-deleted':{
@@ -3908,9 +3942,30 @@ function showUserPopup(id){
   $('up-status').textContent=isAway?'🟡 Away':'🟢 Online';
   $('up-agent').innerHTML=agentIcon[s.agent||detectAgent()]||agentIcon['windows'];
   $('up-ip').textContent=s.ip||'Unknown';
+  currentPopupPeerId=id;
+  const banBtn=$('up-ban-btn');
+  if(banBtn)banBtn.style.display=(isAdmin&&id!==myId)?'':'none';
   $('user-popup').style.display='flex';
 }
-function closeUserPopup(){$('user-popup').style.display='none';}
+function closeUserPopup(){$('user-popup').style.display='none';currentPopupPeerId=null;}
+function banCurrentPopupUser(){
+  if(!currentPopupPeerId||!isAdmin)return;
+  const name=peers[currentPopupPeerId]?.name||'user';
+  closeUserPopup();
+  wsSend({type:'ban',data:{peerId:currentPopupPeerId}});
+  toast('🚫 '+name+' banned from room','warn',null);
+}
+function unbanIP(ip){
+  if(!isAdmin)return;
+  wsSend({type:'unban',data:{ip}});
+}
+function updateBanListUI(list){
+  const c=$('ban-list-container');if(!c)return;
+  if(!list||!list.length){c.innerHTML='<div class="ban-list-empty">No banned users</div>';return;}
+  c.innerHTML='<div class="ban-list-wrap">'+list.map(item=>
+    `<div class="ban-list-item"><div class="ban-item-info"><div class="ban-item-name">${esc(item.name)}</div><div class="ban-item-ip">${esc(item.ip)}</div></div><button class="unban-btn" onclick="unbanIP(${JSON.stringify(item.ip)})">Unban</button></div>`
+  ).join('')+'</div>';
+}
 
 // Global event delegation for copy buttons (inline onclick stripped by sanitizer)
 document.addEventListener('click',function(e){
@@ -3920,6 +3975,21 @@ document.addEventListener('click',function(e){
 
 window.onload=()=>{
   $('name-input').focus();
+  // ── IP-based auto-login: pre-fill name from server if returning user ──
+  (async()=>{
+    try{
+      const params=new URLSearchParams(window.location.search);
+      const room=params.get('room')||'general';
+      const r=await fetch('/name-hint?room='+encodeURIComponent(room));
+      if(!r.ok)return;
+      const d=await r.json();
+      if(d&&d.name&&$('join-screen').style.display!=='none'){
+        $('name-input').value=d.name;
+        if(params.get('room'))try{$('room-input').value=params.get('room');}catch(_){}
+        setTimeout(()=>{if($('join-screen').style.display!=='none')$('join-btn').click();},500);
+      }
+    }catch(_){}
+  })();
   // Set base guard so first back press is handled (not a real browser-back)
   history.replaceState({guard:'login'},'');
   pushGuard('login');
@@ -3993,6 +4063,8 @@ function openSettings(){
     b.classList.toggle('active',parseInt(b.dataset.size)===_selectedFontSize);
     b.onclick=()=>{_selectedFontSize=parseInt(b.dataset.size);document.querySelectorAll('.fs-btn').forEach(bb=>bb.classList.toggle('active',bb===b));};
   });
+  if(isAdmin){$('admin-ban-section').style.display='';wsSend({type:'get-ban-list'});}
+  else{$('admin-ban-section').style.display='none';}
   $('settings-overlay').style.display='flex';
 }
 function closeSettings(){$('settings-overlay').style.display='none';}
