@@ -104,13 +104,28 @@ func (h *Hub) run() {
 				}
 			}
 
-			// Admit
+			// Admit — but first evict any existing client with the same name
+			// (handles Android/browser reconnect: old WS lingers while new one joins)
 			if h.rooms[c.room] == nil {
 				h.rooms[c.room] = make(map[string]*Client)
+			}
+			var evicted []*Client
+			for eid, ec := range h.rooms[c.room] {
+				if ec.name == c.name {
+					evicted = append(evicted, ec)
+					delete(h.rooms[c.room], eid)
+					log.Printf("[evict] %s (%s) replaced by reconnect in room %s", ec.name, ec.id, c.room)
+				}
 			}
 			existing := h.peersInRoom(c.room)
 			h.rooms[c.room][c.id] = c
 			h.mu.Unlock()
+
+			// Notify room about evictions and close old connections
+			for _, old := range evicted {
+				h.broadcastToRoom(c.room, old.id, outMsg{Type: "peer-left", From: old.id})
+				old.conn.Close() // readPump error → unregister fires but wasInRoom=false, no double broadcast
+			}
 
 			c.sendJSON(outMsg{Type: "welcome", From: c.id, Peers: existing})
 			h.broadcastToRoom(c.room, c.id, outMsg{
@@ -121,9 +136,11 @@ func (h *Hub) run() {
 
 		case c := <-h.unregister:
 			var toDelete []string
+			wasInRoom := false
 
 			h.mu.Lock()
 			if _, ok := h.rooms[c.room][c.id]; ok {
+				wasInRoom = true
 				delete(h.rooms[c.room], c.id)
 				if len(h.rooms[c.room]) == 0 {
 					// Room is now empty — destroy everything
@@ -136,8 +153,12 @@ func (h *Hub) run() {
 			h.mu.Unlock()
 			c.conn.Close()
 
-			h.broadcastToRoom(c.room, c.id, outMsg{Type: "peer-left", From: c.id})
-			log.Printf("[left] %s (%s) ← room %s", c.name, c.id, c.room)
+			// Only broadcast peer-left if the client was still registered
+			// (prevents duplicate broadcasts when evicted via same-name reconnect)
+			if wasInRoom {
+				h.broadcastToRoom(c.room, c.id, outMsg{Type: "peer-left", From: c.id})
+				log.Printf("[left] %s (%s) ← room %s", c.name, c.id, c.room)
+			}
 
 			// Delete uploaded files in background
 			if len(toDelete) > 0 {

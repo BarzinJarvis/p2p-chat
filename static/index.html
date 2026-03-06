@@ -3050,15 +3050,17 @@ function updateGridClass(){
 }
 
 /* ═══ Message UI ═══ */
-function isAtBottom(){const m=$('messages');return m.scrollHeight-m.scrollTop-m.clientHeight<120;}
+function isAtBottom(){const m=$('messages');return m.scrollHeight-m.scrollTop-m.clientHeight<200;}
 function scrollBottom(){
   const m=$('messages');unreadCount=0;hideScrollBtn();
+  _atBottom=true;
   m.scrollTop=m.scrollHeight;
-  // Delay re-scroll: seen-row avatars render after the initial scroll,
-  // which increases scrollHeight. Two rAF passes + 120ms cover both cases.
+  // Delay re-scroll: seen-row avatars / images render after the initial scroll,
+  // which increases scrollHeight. Guard later passes with _atBottom so we don't
+  // force the user back to the bottom if they intentionally scrolled up.
   requestAnimationFrame(()=>{
     m.scrollTop=m.scrollHeight;
-    setTimeout(()=>{m.scrollTop=m.scrollHeight;},120);
+    setTimeout(()=>{if(_atBottom)m.scrollTop=m.scrollHeight;},200);
   });
 }
 function showScrollBtn(n){
@@ -3337,6 +3339,7 @@ function makeVideoPlayer(src){
   ov.onclick=e=>{if(e.target===ov||e.target===pb||pb.contains(e.target)){if(vid.paused)vid.play();else vid.pause();}};
   vid.onplay=()=>{ov.classList.add('playing');};vid.onpause=vid.onended=()=>{ov.classList.remove('playing');};
   vid.onloadedmetadata=()=>{if(isFinite(vid.duration))tme.textContent='0:00 / '+fmtTime(vid.duration);};
+  vid.addEventListener('loadeddata',()=>{if(_atBottom)scrollBottom();});
   vid.ontimeupdate=()=>{if(!isFinite(vid.duration))return;fill.style.width=(vid.currentTime/vid.duration*100)+'%';tme.textContent=fmtTime(vid.currentTime)+' / '+fmtTime(vid.duration);};
   bar.addEventListener('click',e=>{if(!isFinite(vid.duration))return;const r=bar.getBoundingClientRect();vid.currentTime=((e.clientX-r.left)/r.width)*vid.duration;});
   return wrap;
