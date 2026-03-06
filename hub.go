@@ -410,12 +410,16 @@ func (h *Hub) run() {
 				}
 				h.mu.Unlock()
 				if target != nil {
-					// Write the banned message SYNCHRONOUSLY before closing so the
-					// client always receives it (async sendJSON races with conn.Close).
+					// Dual-signal the ban so the client always knows:
+					//   1. TEXT "banned" message  → handled by onmessage
+					//   2. WS CLOSE frame 4002    → handled by onclose (fallback if text missed)
+					// Both are written synchronously (under the conn mutex) before closing.
 					banData, _ := json.Marshal(map[string]string{"reason": "Banned by admin"})
 					banBytes, _ := json.Marshal(outMsg{Type: "banned", Data: json.RawMessage(banData)})
+					closeMsg := websocket.FormatCloseMessage(4002, "banned")
 					target.mu.Lock()
 					_ = target.conn.WriteMessage(websocket.TextMessage, banBytes)
+					_ = target.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
 					target.mu.Unlock()
 					target.conn.Close()
 					h.broadcastToRoom(env.sender.room, bd.PeerID, outMsg{Type: "peer-left", From: bd.PeerID})

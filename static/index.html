@@ -1632,6 +1632,7 @@ let editingMsgId=null;
 let unreadCount=0;
 let _atBottom=true; // tracks scroll position BEFORE new messages land
 let isAdmin=false;
+let _wasBanned=false; // set when we receive a 'banned' msg; suppresses reconnect in onclose
 let adminPeerId=null;
 let currentPopupPeerId=null;
 function enq(fn){sigQ=sigQ.then(fn).catch(console.warn);}
@@ -1743,15 +1744,31 @@ function connectWS(room,name,pass){
   ws.onopen=()=>{/* wait for welcome or error */};
   ws.onclose=e=>{
     // Code 4001 = evicted (another session from same IP took over).
-    // Do NOT auto-reconnect — just silently return to join screen so the
-    // two tabs don't ping-pong evicting each other forever.
+    // Do NOT auto-reconnect — silently return to join screen.
     if(e.code===4001){
       cleanupAll();stopPingLoop();
+      $('app').classList.remove('visible');
       $('join-screen').style.display='';
       showJoinError('⚠️ Your session was replaced by a new connection from the same device.');
       $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
       return;
     }
+    // Code 4002 = banned by admin (fallback if the TEXT banned message was missed).
+    if(e.code===4002){
+      if(!_wasBanned){ // only run if onmessage 'banned' case didn't already show the UI
+        cleanupAll();stopPingLoop();
+        $('app').classList.remove('visible');
+        $('join-screen').style.display='';
+        $('join-error').textContent='🚫 You have been banned from this room by the admin.';
+        $('join-error').classList.add('show');
+        $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
+      }
+      _wasBanned=false;
+      return;
+    }
+    // For any other close: if we already handled a ban/evict via onmessage,
+    // suppress the reconnect overlay.
+    if(_wasBanned){_wasBanned=false;return;}
     if($('app').classList.contains('visible')&&!e.wasClean){
       setSub('Disconnected',false);
       showDiscOverlay();
@@ -1967,8 +1984,13 @@ async function onSig(msg){
       break;
     }
     case 'banned':{
-      ws&&ws.close();cleanupAll();stopPingLoop();
+      // Mark banned so onclose doesn't trigger the reconnect overlay.
+      // Do NOT call ws.close() here — server sends WS close frame 4002 which
+      // fires onclose and handles the connection teardown cleanly.
+      _wasBanned=true;
+      cleanupAll();stopPingLoop();
       $('join-screen').style.display='';
+      $('app').classList.remove('visible');
       $('join-error').textContent='🚫 You have been banned from this room by the admin.';
       $('join-error').classList.add('show');
       $('join-btn').disabled=false;$('join-btn').textContent='Join Room →';
